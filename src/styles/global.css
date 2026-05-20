@@ -3919,3 +3919,125 @@ html[data-win-titlebar][data-maximized] .main {
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* ── Production polish v2 — premium dark cinematic ──────────────────── */
+:root {
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "DM Sans", sans-serif;
+  --accent: var(--red);
+  --accent-soft: rgba(229, 9, 20, 0.12);
+}
+
+body {
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
+}
+
+/* GPU-accelerated transforms only — no layout-thrashing properties */
+.card, .saved-thumb, .sidebar-btn, button {
+  transition: transform .22s cubic-bezier(.2,.7,.2,1),
+              opacity .22s ease,
+              background-color .18s ease,
+              box-shadow .22s ease;
+}
+
+/* Card refinement */
+.card { border-radius: 12px; overflow: hidden; }
+.card-poster { border-radius: 12px; overflow: hidden; position: relative; }
+.card-poster::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 45%;
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,0.75));
+  opacity: 0;
+  transition: opacity .25s ease;
+  pointer-events: none;
+}
+.card:hover .card-poster::after { opacity: 1; }
+
+/* Sidebar refinement */
+.sidebar { border-right: 1px solid var(--border); background: rgba(10,10,12,0.85); }
+.sidebar-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Source dropdown / modals */
+.modal, .search-modal, .trailer-modal, .source-dropdown {
+  background: rgba(16,16,20,0.92);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lift);
+  border-radius: 14px;
+}
+
+/* Buttons */
+button.primary, .btn-primary, .play-btn {
+  background: linear-gradient(180deg, var(--red), var(--red2));
+  border: none;
+  color: white;
+  font-weight: 600;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px -2px rgba(229,9,20,0.45);
+}
+button.primary:hover, .btn-primary:hover, .play-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px -2px rgba(229,9,20,0.6);
+}
+
+/* Smoother scrollbars */
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.22); }
+
+/* Responsive grids — applies to common containers */
+.cards-grid, .grid-wrap, .results-grid, [class*="-grid"] {
+  display: grid;
+  gap: clamp(10px, 1.4vw, 20px);
+  grid-template-columns: repeat(auto-fill, minmax(clamp(120px, 14vw, 200px), 1fr));
+}
+
+/* App content padding scales with viewport */
+.page, .home, .library, .settings, main, .content {
+  padding: clamp(12px, 2vw, 28px);
+}
+
+/* Tablet */
+@media (max-width: 1024px) {
+  :root { --sidebar: 64px; }
+  .hero h1 { font-size: clamp(28px, 5vw, 48px) !important; }
+}
+
+/* Phone */
+@media (max-width: 640px) {
+  :root { --sidebar: 0px; }
+  .sidebar { display: none; }
+  .titlebar { display: none !important; }
+  body, #root { overflow-y: auto !important; overflow-x: hidden; }
+  .page, .home, .library, .settings, main, .content { padding: 12px; padding-bottom: 80px; }
+  .modal, .search-modal { width: 96vw !important; max-width: 96vw !important; }
+}
+
+/* Smaller phones */
+@media (max-width: 380px) {
+  .cards-grid, .grid-wrap, .results-grid, [class*="-grid"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+/* Player container always 16:9, never overflows */
+.player-wrap, .player-container {
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto !important;
+  max-height: calc(100vh - 80px);
+}
+
+/* Loading skeleton card variant */
+.card-skeleton + .card-skeleton-meta {
+  height: 28px;
+  margin-top: 8px;
+  border-radius: 6px;
+}
