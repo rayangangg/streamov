@@ -374,8 +374,11 @@ export const isAnimeContent = (item, details) => {
 };
 
 // Default sources
-export const ANIME_DEFAULT_SOURCE = "allmanga";
-export const NON_ANIME_DEFAULT_SOURCE = "vidsrc";
+// Web browsers cannot use Electron's webRequest/header overrides or the local
+// AllManga player server, so default to the provider that embeds cleanly in a
+// normal iframe. Other sources remain selectable from the source menu.
+export const ANIME_DEFAULT_SOURCE = "videasy";
+export const NON_ANIME_DEFAULT_SOURCE = "videasy";
 
 // ── Episode Group fetch (localStorage + in-memory cache, 7-day TTL) ─────────
 // Episode groups almost never change, so we cache aggressively across sessions.

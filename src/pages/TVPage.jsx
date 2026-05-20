@@ -380,7 +380,12 @@ export default function TVPage({
   const [m3u8Url, setM3u8Url] = useState(null);
   const [interceptedSubs, setInterceptedSubs] = useState([]);
   const [playerSource, setPlayerSource] = useState(
-    () => storage.get("playerSource") || NON_ANIME_DEFAULT_SOURCE,
+    () => {
+      const saved = storage.get("playerSource");
+      return saved && !["vidsrc", "2embed", "allmanga"].includes(saved)
+        ? saved
+        : NON_ANIME_DEFAULT_SOURCE;
+    },
   );
   const [showSourceMenu, setShowSourceMenu] = useState(false);
   // Derived from playerSource, computed once per render instead of 5-6× inline
@@ -1043,6 +1048,9 @@ export default function TVPage({
     const wv = webviewRef.current;
     if (!wv) return;
     const done = () => setWebviewLoading(false);
+    const fallbackTimer = setTimeout(done, 2500);
+    wv.addEventListener("load", done);
+    wv.addEventListener("error", done);
     wv.addEventListener("did-finish-load", done);
     wv.addEventListener("did-fail-load", done);
 
@@ -1067,6 +1075,9 @@ export default function TVPage({
     }, 1000);
 
     return () => {
+      clearTimeout(fallbackTimer);
+      wv.removeEventListener("load", done);
+      wv.removeEventListener("error", done);
       wv.removeEventListener("did-finish-load", done);
       wv.removeEventListener("did-fail-load", done);
       clearInterval(pollDuration);
@@ -1681,9 +1692,9 @@ export default function TVPage({
                           )
                   }
                   title="Player"
-                  allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-                  allowFullScreen
-                  referrerPolicy="no-referrer"
+                  allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
+                  referrerPolicy="origin"
+                  loading="eager"
                   style={{
                     position: "absolute",
                     inset: 0,
