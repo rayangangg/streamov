@@ -77,7 +77,12 @@ export default function MoviePage({
   const [m3u8Url, setM3u8Url] = useState(null);
   const [interceptedSubs, setInterceptedSubs] = useState([]);
   const [playerSource, setPlayerSource] = useState(
-    () => storage.get("playerSource") || NON_ANIME_DEFAULT_SOURCE,
+    () => {
+      const saved = storage.get("playerSource");
+      return saved && !["vidsrc", "2embed", "allmanga"].includes(saved)
+        ? saved
+        : NON_ANIME_DEFAULT_SOURCE;
+    },
   );
   const progressViaFrames = useMemo(
     () => sourceProgressViaFrames(playerSource),
