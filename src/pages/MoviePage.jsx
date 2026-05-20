@@ -931,57 +931,215 @@ React.useEffect(() => {
               </div>
             )}
             {/* Widescreen 16:9 Aspect Ratio Protection Shell to ensure responsiveness */}
-            <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl border border-zinc-800">
-              <iframe
-                ref={webviewRef}
-                data-player-frame="true"
-                src={
-                  pipOpen
-                    ? "about:blank"
-                    : sourceIsAsync(playerSource)
-                      ? resolvedPlayerUrl || "about:blank"
-                      : getSourceUrl(playerSource, "movie", item.id, null, null)
+            {/* Isolated Player Wrapper Matrix */}
+          <div 
+            className="relative w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl border border-zinc-800"
+            style={{ position: "relative", width: "100%", overflow: "hidden" }}
+          >
+            {/* The Actual Video Iframe */}
+            <iframe
+              ref={webviewRef}
+              data-player-frame="true"
+              src={
+                pipOpen
+                  ? "about:blank"
+                  : sourceIsAsync(playerSource)
+                    ? resolvedPlayerUrl || "about:blank"
+                    : getSourceUrl(playerSource, "movie", item.id, null, null)
+              }
+              title="Player"
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
+              allowFullScreen
+              referrerPolicy="origin"
+              loading="eager"
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: "100%",
+                border: "none",
+                background: "black",
+                zIndex: 10,
+                visibility:
+                  webviewLoading ||
+                  (sourceIsAsync(playerSource) && !resolvedPlayerUrl)
+                    ? "hidden"
+                    : "visible",
+              }}
+            />
+
+            {/* Premium Multi-Touch Click Interceptor Shield */}
+            <div 
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                height: "calc(100% - 55px)",
+                backgroundColor: "transparent",
+                zIndex: 20,
+                pointerEvents: "auto",
+                cursor: "pointer"
+              }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onMouseUp={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+            />
+          </div>
+
+          {/* Left-side overlay button group (Kept completely separate to fix layout shifting) */}
+          <div className="player-overlay-group" style={{ position: "relative", zIndex: 30, display: "flex", gap: "8px", marginTop: "12px" }}>
+            <button
+              ref={sourceRef}
+              className="player-overlay-btn"
+              onClick={() => {
+                const rect = sourceRef.current?.getBoundingClientRect();
+                if (rect)
+                  setMenuPos({ top: rect.bottom + 6, left: rect.left });
+                setShowSourceMenu((v) => !v);
+              }}
+              title="Change source"
+            >
+              <SourceIcon />
+              {PLAYER_SOURCES.find((s) => s.id === playerSource)?.label ?? "Source"}
+            </button>
+
+            {playerSource === "allmanga" && (
+              <button
+                className="player-overlay-btn"
+                onClick={() => {
+                  const next = dubMode === "sub" ? "dub" : "sub";
+                  setDubMode(next);
+                  storage.set("allmangaDubMode", next);
+                  setM3u8Url(null);
+                  setInterceptedSubs([]);
+                  setResolvedPlayerUrl(null);
+                  setResolvingUrl(false);
+                  setResolveError(null);
+                }}
+                title="Toggle Sub/Dub"
+              >
+                {dubMode === "sub" ? "SUB" : "DUB"}
+              </button>
+            )}
+
+            <button
+              className="player-overlay-btn"
+              onClick={() => {
+                setShowSourceMenu(false);
+                setShowBlockedModal(true);
+              }}
+              title="Blocked ads & trackers"
+            >
+              <ShieldBlockIcon />
+              {blockedSession > 0 && (
+                <span className="player-blocked-badge">{blockedSession}</span>
+              )}
+            </button>
+
+            <button
+              className="player-overlay-btn"
+              onClick={() => {
+                if (pipOpen) {
+                  window.electron?.closePipWindow?.();
+                  return;
                 }
-                title="Player"
-                allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
-                allowFullScreen
-                referrerPolicy="origin"
-                loading="eager"
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  width: "100%",
-                  height: "100%",
-                  border: "none",
-                  background: "black",
-                  zIndex: 10,
-                  visibility:
-                    webviewLoading ||
-                    (sourceIsAsync(playerSource) && !resolvedPlayerUrl)
-                      ? "hidden"
-                      : "visible",
-                }}
-              />
+                const url = sourceIsAsync(playerSource)
+                  ? resolvedPlayerUrl
+                  : getSourceUrl(playerSource, "movie", item.id, null, null);
+                if (!url) return;
+                pipUrlRef.current = url;
+                window.electron?.openPipWindow?.(url, item.title);
+              }}
+              title={pipOpen ? "Close pop-out" : "Pop out player"}
+              disabled={
+                !pipOpen &&
+                (webviewLoading ||
+                  !!(sourceIsAsync(playerSource) && !resolvedPlayerUrl))
+              }
+              style={pipOpen ? { color: "var(--red)" } : undefined}
+            >
+              <PopOutIcon />
+            </button>
 
-              {/* Transparent Click Shielding Interceptor */}
-              {/* Covers the entire display window except for the bottom control bar layout matrix */}
-              <div 
-                className="absolute top-0 left-0 w-full h-[calc(100%-55px)] bg-transparent z-20 pointer-events-auto"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onMouseUp={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-              />
+            <button
+              className="player-overlay-btn"
+              onClick={() =>
+                movieDownload
+                  ? onGoToDownloads?.(movieDownload.id)
+                  : (setShowSourceMenu(false), setShowDownload(true))
+              }
+              title={
+                movieDownload
+                  ? movieDownload.status === "downloading"
+                    ? "Downloading… - view in Downloads"
+                    : "Already downloaded - view in Downloads"
+                  : "Download"
+              }
+            >
+              {movieDownload ? (
+                <span
+                  className="player-downloaded-icon"
+                  style={{
+                    color: movieDownload.status === "downloading" ? "var(--red)" : "#4caf50",
+                  }}
+                >
+                  {movieDownload.status === "downloading" ? "↓" : "✓"}
+                </span>
+              ) : (
+                <DownloadIcon />
+              )}
+              {!movieDownload && m3u8Url && <span className="player-overlay-dot" />}
+              {!sourceSupportsProgress(playerSource) && (
+                <span className="player-no-progress-hint" title="No automatic progress tracking for this source">
+                  ⚠ no tracking
+                </span>
+              )}
+            </button>
+          </div>
+
+          {showSourceMenu && menuPos && (
+            <div
+              className="source-dropdown source-dropdown--fixed"
+              style={{ top: menuPos.top, left: menuPos.left, zIndex: 40 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {PLAYER_SOURCES.map((src) => (
+                <button
+                  key={src.id}
+                  className={
+                    "source-dropdown__item" +
+                    (playerSource === src.id ? " source-dropdown__item--active" : "")
+                  }
+                  onClick={() => {
+                    setShowSourceMenu(false);
+                    if (src.id === playerSource) return;
+                    setPlayerSource(src.id);
+                    storage.set("playerSource", src.id);
+                    setM3u8Url(null);
+                    setInterceptedSubs([]);
+                    setResolvedPlayerUrl(null);
+                    setResolvingUrl(false);
+                    setResolveError(null);
+                  }}
+                >
+                  <span>{src.label}</span>
+                  {src.tag && <span className="source-dropdown__tag">{src.tag}</span>}
+                  {src.note && <span className="source-dropdown__note">{src.note}</span>}
+                </button>
+              ))}
             </div>
-
+          )}
             {/* Left-side overlay button group, flex row, no fixed px offsets */}
             <div className="player-overlay-group" style={{ position: "relative", zIndex: 30 }}>
               <button
