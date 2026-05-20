@@ -47,23 +47,28 @@
 }
 
 :root {
-    --bg: #0a0a0a;
-    --surface: #111111;
-    --surface2: #1a1a1a;
-    --surface3: #222222;
-    --border: #2a2a2a;
+    --bg: #09090b;
+    --bg-elev: #0d0d10;
+    --surface: rgba(20, 20, 24, 0.72);
+    --surface2: rgba(28, 28, 32, 0.78);
+    --surface3: rgba(38, 38, 44, 0.85);
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.14);
     --red: #e50914;
     --red2: #ff1a24;
     --red-dim: rgba(229, 9, 20, 0.15);
-    --red-glow: 0 0 30px rgba(229, 9, 20, 0.3);
+    --red-glow: 0 0 30px rgba(229, 9, 20, 0.35);
     --gold: #c8a84b;
-    --text: #f0f0f0;
-    --text2: #c0c0c0;
-    --text3: #909090;
+    --text: #f5f5f7;
+    --text2: #c7c7cc;
+    --text3: #8e8e93;
     --sidebar: 72px;
-    --radius: 8px;
+    --radius: 10px;
+    --shadow-card: 0 8px 24px -8px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.4);
+    --shadow-lift: 0 24px 48px -16px rgba(0, 0, 0, 0.7);
+    --blur: saturate(140%) blur(20px);
     --font-display: "Bebas Neue", sans-serif;
-    --font-body: "DM Sans", sans-serif;
+    --font-body: "DM Sans", -apple-system, BlinkMacSystemFont, "Inter", "SF Pro Display", sans-serif;
 }
 
 html,
