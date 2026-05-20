@@ -1,4 +1,3 @@
-// TMDB proxy with hidden commercial read-access token.
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -6,62 +5,40 @@ const CORS = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
-const TMDB_BASE = "https://api.themoviedb.org/3";
-
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: CORS });
-  }
-
-  const token = Deno.env.get("TMDB_READ_ACCESS_TOKEN") || "";
-  if (!token) {
-    return new Response(
-      JSON.stringify({ error: "TMDB_READ_ACCESS_TOKEN not configured" }),
-      {
-        status: 500,
-        headers: { ...CORS, "Content-Type": "application/json" },
-      },
-    );
-  }
+  console.log("hit", req.method, req.url);
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
   try {
+    const token = Deno.env.get("TMDB_READ_ACCESS_TOKEN") || "";
+    console.log("token len:", token.length);
     const url = new URL(req.url);
-    // Strip the leading "/<function-name>" prefix, whatever it is.
-    // Supabase routes /functions/v1/tmdb/<rest> → req.url ends with /tmdb/<rest>.
-    let tmdbPath = url.pathname.replace(/^.*?\/tmdb/, "");
-    if (!tmdbPath) tmdbPath = url.searchParams.get("path") || "";
-    if (!tmdbPath.startsWith("/")) tmdbPath = "/" + tmdbPath;
-    if (tmdbPath === "/") tmdbPath = "/configuration";
-
+    let p = url.pathname.replace(/^.*?\/tmdb/, "");
+    if (!p) p = "/configuration";
+    if (!p.startsWith("/")) p = "/" + p;
     const params = new URLSearchParams(url.search);
     params.delete("path");
     const qs = params.toString();
-    const target = `${TMDB_BASE}${tmdbPath}${qs ? "?" + qs : ""}`;
-
-    const upstream = await fetch(target, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
+    const target = `https://api.themoviedb.org/3${p}${qs ? "?" + qs : ""}`;
+    console.log("→", target);
+    const r = await fetch(target, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
     });
-
-    const body = await upstream.text();
+    console.log("←", r.status);
+    const body = await r.text();
     return new Response(body, {
-      status: upstream.status,
+      status: r.status,
       headers: {
         ...CORS,
-        "Content-Type":
-          upstream.headers.get("Content-Type") || "application/json",
+        "Content-Type": "application/json",
         "Cache-Control": "public, max-age=300",
       },
     });
   } catch (e) {
-    return new Response(
-      JSON.stringify({ error: String((e && e.message) || e) }),
-      {
-        status: 502,
-        headers: { ...CORS, "Content-Type": "application/json" },
-      },
-    );
+    console.error("ERR", e);
+    return new Response(JSON.stringify({ error: String(e?.message ?? e) }), {
+      status: 502,
+      headers: { ...CORS, "Content-Type": "application/json" },
+    });
   }
 });
