@@ -422,9 +422,15 @@ export default function MoviePage({
     const wv = webviewRef.current;
     if (!wv) return;
     const done = () => setWebviewLoading(false);
+    const fallbackTimer = setTimeout(done, 2500);
+    wv.addEventListener("load", done);
+    wv.addEventListener("error", done);
     wv.addEventListener("did-finish-load", done);
     wv.addEventListener("did-fail-load", done);
     return () => {
+      clearTimeout(fallbackTimer);
+      wv.removeEventListener("load", done);
+      wv.removeEventListener("error", done);
       wv.removeEventListener("did-finish-load", done);
       wv.removeEventListener("did-fail-load", done);
     };
@@ -905,9 +911,9 @@ export default function MoviePage({
                     : getSourceUrl(playerSource, "movie", item.id, null, null)
               }
               title="Player"
-              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-              allowFullScreen
-              referrerPolicy="no-referrer"
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
+              referrerPolicy="origin"
+              loading="eager"
               style={{
                 position: "absolute",
                 inset: 0,
