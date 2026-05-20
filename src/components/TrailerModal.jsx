@@ -232,11 +232,13 @@ export default function TrailerModal({ trailerKey, title, onClose }) {
           )}
 
           {currentSrc && (
-            <webview
+            <iframe
               ref={webviewRef}
               src={currentSrc}
-              partition="persist:trailer"
-              allowpopups="false"
+              title="Trailer"
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+              allowFullScreen
+              referrerPolicy="no-referrer"
               style={{
                 position: "absolute",
                 inset: 0,

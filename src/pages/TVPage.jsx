@@ -1665,7 +1665,7 @@ export default function TVPage({
                     </button>
                   </div>
                 )}
-                <webview
+                <iframe
                   ref={webviewRef}
                   src={
                     pipOpen
@@ -1680,9 +1680,10 @@ export default function TVPage({
                             playerEp.episode,
                           )
                   }
-                  partition="persist:player"
-                  allowpopups="false"
-                  sandbox="allow-scripts allow-same-origin allow-forms"
+                  title="Player"
+                  allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                  referrerPolicy="no-referrer"
                   style={{
                     position: "absolute",
                     inset: 0,

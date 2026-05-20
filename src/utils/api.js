@@ -1,6 +1,19 @@
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const IMG_BASE = "https://image.tmdb.org/t/p";
 
+// ── Cloud proxy ─────────────────────────────────────────────────────────────
+// When apiKey === CLOUD_TOKEN, requests are routed through our edge function
+// which injects the commercial TMDB read-access token server-side. This keeps
+// the secret off the client and removes the need for a per-user setup step.
+export const CLOUD_TOKEN = "__cloud__";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_ANON =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  "";
+const CLOUD_PROXY = SUPABASE_URL ? `${SUPABASE_URL}/functions/v1/tmdb` : "";
+export const hasCloudProxy = !!CLOUD_PROXY;
+
 export const imgUrl = (path, size = "w500") =>
   path ? `${IMG_BASE}/${size}${path}` : null;
 
@@ -48,20 +61,21 @@ export const tmdbFetch = async (path, apiKey) => {
 
   await _acquireSlot();
 
+  const useCloud = !apiKey || apiKey === CLOUD_TOKEN;
+  const url = useCloud
+    ? `${CLOUD_PROXY}${path.startsWith("/") ? path : "/" + path}`
+    : `${TMDB_BASE}${path}`;
+  const headers = useCloud
+    ? { apikey: SUPABASE_ANON, Authorization: `Bearer ${SUPABASE_ANON}` }
+    : { Authorization: `Bearer ${apiKey}` };
+
   let res;
   try {
-    res = await fetch(`${TMDB_BASE}${path}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
+    res = await fetch(url, { headers });
   } catch {
     _releaseSlot();
     _onUnreachable?.();
     throw new Error("TMDB unreachable");
-  } finally {
-    // releaseSlot is called in the catch above for network errors;
-    // for successful responses it is called immediately below, before
-    // parsing, so the slot is held only during the actual in-flight
-    // request, not during res.json().
   }
 
   _releaseSlot();
