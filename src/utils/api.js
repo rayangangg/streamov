@@ -1,6 +1,19 @@
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const IMG_BASE = "https://image.tmdb.org/t/p";
 
+// ── Cloud proxy ─────────────────────────────────────────────────────────────
+// When apiKey === CLOUD_TOKEN, requests are routed through our edge function
+// which injects the commercial TMDB read-access token server-side. This keeps
+// the secret off the client and removes the need for a per-user setup step.
+export const CLOUD_TOKEN = "__cloud__";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_ANON =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  "";
+const CLOUD_PROXY = SUPABASE_URL ? `${SUPABASE_URL}/functions/v1/tmdb` : "";
+export const hasCloudProxy = !!CLOUD_PROXY;
+
 export const imgUrl = (path, size = "w500") =>
   path ? `${IMG_BASE}/${size}${path}` : null;
 
