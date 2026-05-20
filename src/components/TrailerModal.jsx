@@ -238,6 +238,7 @@ export default function TrailerModal({ trailerKey, title, onClose }) {
               title="Trailer"
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
               allowFullScreen
+              sandbox="allow-scripts allow-same-origin allow-forms"
               referrerPolicy="no-referrer"
               style={{
                 position: "absolute",
