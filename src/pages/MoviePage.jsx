@@ -895,7 +895,7 @@ export default function MoviePage({
                 </button>
               </div>
             )}
-            <webview
+            <iframe
               ref={webviewRef}
               src={
                 pipOpen
@@ -904,15 +904,17 @@ export default function MoviePage({
                     ? resolvedPlayerUrl || "about:blank"
                     : getSourceUrl(playerSource, "movie", item.id, null, null)
               }
-              partition="persist:player"
-              allowpopups="false"
-              sandbox="allow-scripts allow-same-origin allow-forms"
+              title="Player"
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+              allowFullScreen
+              referrerPolicy="no-referrer"
               style={{
                 position: "absolute",
                 inset: 0,
                 width: "100%",
                 height: "100%",
                 border: "none",
+                background: "black",
                 visibility:
                   webviewLoading ||
                   (sourceIsAsync(playerSource) && !resolvedPlayerUrl)
