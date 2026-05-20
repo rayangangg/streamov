@@ -103,7 +103,7 @@ export default function Sidebar({
       <div
         className="sidebar-logo"
         onClick={() => onNavigate("home")}
-        title="Streambert"
+        title="StreaMOV"
       >
         <StreambertLogo />
       </div>
