@@ -97,22 +97,27 @@ export default function MoviePage({
   const sourceRef = useRef(null);
   const playerWrapRef = useRef(null);
   const webviewRef = useRef(null);
-  
+  // Always-current refs for interval callbacks, avoids stale closures without restarting the interval
   const saveProgressRef = useRef(saveProgress);
   saveProgressRef.current = saveProgress;
   const onMarkWatchedRef = useRef(onMarkWatched);
   onMarkWatchedRef.current = onMarkWatched;
-
+  // AllManga async URL resolution
   const [resolvedPlayerUrl, setResolvedPlayerUrl] = useState(null);
   const [resolvingUrl, setResolvingUrl] = useState(false);
   const [resolveError, setResolveError] = useState(null);
   const [collection, setCollection] = useState(null);
+  // { name, parts }
+  // Webview loading overlay
   const [webviewLoading, setWebviewLoading] = useState(false);
   const [playerFullscreen, setPlayerFullscreen] = useState(false);
+  // pipOpen=true: main webview shows about:blank, pop-out window has the real player
   const [pipOpen, setPipOpen] = useState(false);
-  const pipUrlRef = useRef(null);
+  const pipUrlRef = useRef(null); // URL to restore when pop-out closes
   const pipWebContentsIdRef = useRef(null);
+  // cached WebContents ID of the pop-out window
 
+  // Derived: detect anime before any effects so effects can use it
   const isAnime = useMemo(
     () => isAnimeContent(item, details),
     [item.id, details],
@@ -120,7 +125,7 @@ export default function MoviePage({
   const [downloaderFolder, setDownloaderFolder] = useState(
     () => storage.get("downloaderFolder") || "",
   );
-
+  // Blocked request stats
   const {
     sessionTotal: blockedSession,
     alltimeTotal: blockedAlltime,
@@ -128,7 +133,7 @@ export default function MoviePage({
     setShowModal: setShowBlockedModal,
     getSessionDomains: getBlockedDomains,
   } = useBlockedStats(item.id);
-
+  // Age rating
   const [rating, setRating] = useState({ cert: null, minAge: null });
   const ageLimitSetting = useMemo(() => getAgeLimitSetting(storage), []);
   const ratingCountry = useMemo(() => getRatingCountry(storage), []);
@@ -137,7 +142,7 @@ export default function MoviePage({
   const pct = progress[progressKey] || 0;
   const isWatched = !!watched?.[progressKey];
   const hasProgress = pct > 0;
-
+  // ── Derived display values (must be declared before any callbacks that use them) ──
   const d = details || item;
   const title = d.title || d.name;
   const year = (d.release_date || "").slice(0, 4);
@@ -170,11 +175,16 @@ export default function MoviePage({
     return { watchedSecs, totalSecs, displayPct, progressLabel };
   }, [progressKey, pct, d?.runtime]);
 
-  const [watchedThreshold] = useState(() => storage.get("watchedThreshold") ?? 20);
+  // Read threshold from settings (default 20s), stable across renders
+  const [watchedThreshold] = useState(
+    () => storage.get("watchedThreshold") ?? 20,
+  );
+  // Ref to prevent double-marking
   const autoMarkedRef = useRef(false);
+  // Tracks last known playback position, used to detect resolution-change resets
   const lastKnownTimeRef = useRef(0);
+  // Timestamp until which we ignore reset detection (post-seekback cooldown)
   const seekBackCooldownRef = useRef(0);
-
   useEffect(() => {
     let mounted = true;
     tmdbFetch(`/movie/${item.id}`, apiKey)
@@ -188,7 +198,6 @@ export default function MoviePage({
       mounted = false;
     };
   }, [item.id, apiKey]);
-
   useEffect(() => {
     let mounted = true;
     fetchMovieRating(item.id, apiKey, ratingCountry).then((r) => {
@@ -198,16 +207,13 @@ export default function MoviePage({
       mounted = false;
     };
   }, [item.id, apiKey, ratingCountry]);
-
   useEffect(() => {
     let mounted = true;
     tmdbFetch(`/movie/${item.id}/videos`, apiKey)
       .then((data) => {
         if (!mounted) return;
         const videos = data.results || [];
-        const trailer =
-          videos.find((v) => v.type === "Trailer" && v.site === "YouTube") ||
-          videos.find((v) => v.site === "YouTube");
+        const trailer = videos.find((v) => v.type === "Trailer" && v.site === "YouTube") || videos.find((v) => v.site === "YouTube");
         if (trailer) setTrailerKey(trailer.key);
       })
       .catch(() => {});
@@ -215,7 +221,7 @@ export default function MoviePage({
       mounted = false;
     };
   }, [item.id, apiKey]);
-
+  // Fetch movie collection (sequels/prequels)
   useEffect(() => {
     setCollection(null);
     if (!details?.belongs_to_collection?.id) return;
@@ -225,7 +231,7 @@ export default function MoviePage({
         if (!mounted) return;
         const parts = (data.parts || [])
           .map((p) => ({ ...p, media_type: "movie" }))
-          .sort((a, b) => (a.release_date || "").localeCompare(b.release_date || ""));
+          .sort((a, b) => (a.release_date || "").localeCompare(b.release_date || ""), );
         if (parts.length > 1) {
           setCollection({ name: data.name, parts });
         }
@@ -235,7 +241,7 @@ export default function MoviePage({
       mounted = false;
     };
   }, [details?.belongs_to_collection?.id, apiKey]);
-
+  // Reset m3u8 URL, subtitle URL and source menu whenever the movie or source changes
   useEffect(() => {
     setM3u8Url(null);
     setInterceptedSubs([]);
@@ -244,76 +250,53 @@ export default function MoviePage({
     setResolvedPlayerUrl(null);
     setResolvingUrl(false);
     setResolveError(null);
-    setWebviewLoading(true);
+    setWebviewLoading(true); // instantly blank the player on every source/item switch
   }, [item.id, playerSource, dubMode]);
-
+  // Fetch AniList data + auto-set source for anime/non-anime
   useEffect(() => {
     let mounted = true;
     if (isAnime) {
-      fetchAnilistData(item.title || item.name, "ANIME", item.id).then((data) => {
-        if (mounted && data) setAnilistData(data);
-      });
+      fetchAnilistData(item.title || item.name, "ANIME", item.id).then(
+        (data) => {
+          if (mounted && data) setAnilistData(data);
+        },
+      ); // Switch to anime source if current source is not an anime source
       const currentSrc = PLAYER_SOURCES.find((s) => s.id === playerSource);
       if (!currentSrc?.tag) {
         const saved = storage.get("playerSource");
         const savedSrc = PLAYER_SOURCES.find((s) => s.id === saved);
         setPlayerSource(savedSrc?.tag ? saved : ANIME_DEFAULT_SOURCE);
       }
-    } else {
+    } else { // Switch back to non-anime source if current source is anime-only
       const currentSrc = PLAYER_SOURCES.find((s) => s.id === playerSource);
       if (currentSrc?.tag) {
         const saved = storage.get("playerSource");
-        const savedSrc = PLAYER_SOURCES.find((s) => s.id === saved);
-        setPlayerSource(!savedSrc?.tag ? saved : NON_ANIME_DEFAULT_SOURCE);
+        const savedSrc = PLAYER_SOURCES.find((s) => !s.tag && s.id === saved);
+        setPlayerSource(savedSrc ? saved : NON_ANIME_DEFAULT_SOURCE);
       }
-    }
-    return () => {
+    } return () => {
       mounted = false;
     };
   }, [item.id, isAnime]);
-
+  // Async URL resolution for AllManga
   useEffect(() => {
-    if (!playing || !sourceIsAsync(playerSource)) return;
-    if (resolvedPlayerUrl || resolvingUrl) return;
+    if (playerSource !== "allmanga" || !playing || !details) return;
+    let mounted = true;
     setResolvingUrl(true);
     setResolveError(null);
-    const startTime = storage.get("dlTime_" + progressKey) || 0;
-    let mounted = true;
-    window.electron
-      .resolveAllManga({
-        title,
-        seasonNumber: 1,
-        episodeNumber: 1,
-        isMovie: true,
-        translationType: dubMode,
-      })
-      .then((res) => {
+    const titleToUse = anilistData?.title?.romaji || details.title || details.name;
+    const releaseYear = (details.release_date || "").slice(0, 4);
+    getSourceUrl("allmanga", details.id, "movie", titleToUse, releaseYear, dubMode)
+      .then((url) => {
         if (!mounted) return;
-        if (res?.ok && res.url) {
-          if (res.isDirectMp4 !== undefined) {
-            window.electron
-              .setPlayerVideo({
-                url: res.url,
-                referer: res.referer || "https://allmanga.to",
-                startTime,
-              })
-              .then((r) => {
-                if (!mounted) return;
-                setResolvedPlayerUrl(r.playerUrl);
-                setM3u8Url(res.url);
-              })
-              .catch(() => {
-                if (mounted) setResolveError("Failed to start local player");
-              });
-          } else {
-            setResolvedPlayerUrl(res.url);
-          }
+        if (url) {
+          setResolvedPlayerUrl(url);
         } else {
-          setResolveError(res?.error || "Movie not found on AllManga");
+          setResolveError("Could not find this movie on AllManga.");
         }
       })
-      .catch((e) => {
-        if (mounted) setResolveError(e.message || "Error");
+      .catch((err) => {
+        if (mounted) setResolveError(err?.message || "Failed to resolve AllManga URL.");
       })
       .finally(() => {
         if (mounted) setResolvingUrl(false);
@@ -321,445 +304,371 @@ export default function MoviePage({
     return () => {
       mounted = false;
     };
-  }, [playing, playerSource, dubMode, title, resolvedPlayerUrl, resolvingUrl, progressKey]);
+  }, [playerSource, playing, details, anilistData, dubMode]);
 
-  useEffect(() => {
-    if (!playing || pipOpen) return;
-    const frame = document.querySelector('[data-player-frame="true"]');
-    if (!frame) return;
-    const handleFrameMessage = (e) => {
-      if (e.data && e.data.type === "PLAYER_PROGRESS") {
-        const current = e.data.currentTime;
-        const duration = e.data.duration;
-        if (current && duration) {
-          const calculatedPct = Math.floor((current / duration) * 100);
-          saveProgressRef.current(progressKey, calculatedPct);
-          storage.set("dlTime_" + progressKey, current);
-          if (calculatedPct >= watchedThreshold && !autoMarkedRef.current && !isWatched) {
-            autoMarkedRef.current = true;
-            onMarkWatchedRef.current(progressKey);
+  // Handle Electron Webview IPC Events for Frame-based progress tracking
+  useLayoutEffect(() => {
+    const wv = webviewRef.current;
+    if (!wv || !playing || !progressViaFrames) return;
+    const handleIPC = (e) => {
+      if (e.channel === "player-timeupdate") {
+        const [currentTime, duration] = e.args;
+        if (typeof currentTime === "number" && typeof duration === "number" && duration > 0) {
+          const currentPct = Math.floor((currentTime / duration) * 100); // Cooldown-based resolution reset detection
+          const now = Date.now();
+          if (currentTime < lastKnownTimeRef.current - 15 && now > seekBackCooldownRef.current) { // stream probably reset due to resolution toggle, restore time
+            wv.executeJavaScript(`
+              (function() {
+                var v = document.querySelector('video');
+                if (v) v.currentTime = ${lastKnownTimeRef.current};
+              })();
+            `).catch(() => {});
+            seekBackCooldownRef.current = now + 4000; // 4s protection window
+          } else {
+            lastKnownTimeRef.current = currentTime;
           }
-        }
-      }
-    };
-    window.addEventListener("message", handleFrameMessage);
-    return () => {
-      window.removeEventListener("message", handleFrameMessage);
-    };
-  }, [playing, pipOpen, progressKey, isWatched, watchedThreshold]);
-
-  useEffect(() => {
-    if (!playing || progressViaFrames || pipOpen) return;
-    const interval = setInterval(() => {
-      if (!webviewRef.current) return;
-      window.electron
-        .getPlayerTime(item.id)
-        .then((data) => {
-          if (!data) return;
-          const { currentTime: current, duration } = data;
-          if (current && duration) {
-            const nowTime = Date.now();
-            if (current < lastKnownTimeRef.current - 15 && nowTime > seekBackCooldownRef.current) {
-              seekBackCooldownRef.current = nowTime + 3000;
-              lastKnownTimeRef.current = current;
-              return;
-            }
-            if (current < lastKnownTimeRef.current - 2 && nowTime > seekBackCooldownRef.current) {
-              window.electron.seekPlayer(item.id, lastKnownTimeRef.current);
-              return;
-            }
-            lastKnownTimeRef.current = current;
-            const calculatedPct = Math.floor((current / duration) * 100);
-            saveProgressRef.current(progressKey, calculatedPct);
-            storage.set("dlTime_" + progressKey, current);
-            if (calculatedPct >= watchedThreshold && !autoMarkedRef.current && !isWatched) {
+          storage.set("dlTime_" + progressKey, currentTime);
+          if (currentPct >= 0 && currentPct <= 100) {
+            saveProgressRef.current(progressKey, currentPct); // Automark as watched if configured threshold reached
+            if (watchedThreshold > 0 && currentTime >= duration - watchedThreshold && !autoMarkedRef.current) {
               autoMarkedRef.current = true;
               onMarkWatchedRef.current(progressKey);
             }
           }
-        })
-        .catch(() => {});
-    }, 4000);
-    return () => {
-      clearInterval(interval);
+        }
+      }
     };
-  }, [playing, progressViaFrames, pipOpen, item.id, progressKey, isWatched, watchedThreshold]);
+    wv.addEventListener("ipc-message", handleIPC);
+    return () => {
+      wv.removeEventListener("ipc-message", handleIPC);
+    };
+  }, [playing, progressViaFrames, progressKey, watchedThreshold]);
 
+  // Inject keyboard/UI shortcuts when webview completes loading
+  const handleDomReady = useCallback(() => {
+    setWebviewLoading(false);
+    const wv = webviewRef.current;
+    if (!wv) return; // Inject custom skip Controls styling and keystrokes
+    wv.executeJavaScript(INJECT_SKIP_CONTROLS).catch(() => {});
+  }, []);
+
+  // Sync Pop-out window state changes from Main Process
   useEffect(() => {
     if (!playing) return;
-    const onPipStatus = (e, status) => {
-      setPipOpen(status.open);
-      if (status.open && status.webContentsId) {
-        pipWebContentsIdRef.current = status.webContentsId;
+    const handlePipState = (e, status, webContentsId) => {
+      setPipOpen(status);
+      if (status && webContentsId) {
+        pipWebContentsIdRef.current = webContentsId;
       } else {
         pipWebContentsIdRef.current = null;
       }
     };
-    window.electron?.onPipStatus?.(onPipStatus);
+    window.electron?.onPipStateChanged?.(handlePipState);
     return () => {
-      window.electron?.removePipStatusListener?.();
+      window.electron?.removePipStateListener?.();
     };
   }, [playing]);
 
-  const handleSetDownloaderFolder = (val) => {
-    setDownloaderFolder(val);
-    storage.set("downloaderFolder", val);
-  };
+  const handleSetDownloaderFolder = useCallback((folder) => {
+    setDownloaderFolder(folder);
+    storage.set("downloaderFolder", folder);
+  }, []);
 
-  const movieDownload = downloads?.find(
-    (dl) => dl.tmdbId === item.id && dl.mediaType === "movie",
-  );
+  // Direct download interception trigger
+  const handleOpenDownload = useCallback(() => {
+    if (NEEDS_INTERCEPT(playerSource)) {
+      if (m3u8Url) {
+        setShowDownload(true);
+      } else {
+        alert("Please start playing the video first to capture the stream link for download!");
+      }
+    } else {
+      setShowDownload(true);
+    }
+  }, [playerSource, m3u8Url]);
 
-  const genres = d.genres || [];
-  const backdrop = d.backdrop_path ? imgUrl(d.backdrop_path, "original") : null;
-  const poster = d.poster_path ? imgUrl(d.poster_path, "w500") : null;
+  const playerUrl = useMemo(() => {
+    if (playerSource === "allmanga") return resolvedPlayerUrl;
+    return getSourceUrl(playerSource, item.id, "movie");
+  }, [playerSource, item.id, resolvedPlayerUrl]);
+
+  // Listen to background M3U8/Subtitle link extraction hooks via Electron APIs
+  useEffect(() => {
+    if (!playing || !NEEDS_INTERCEPT(playerSource)) return;
+    const unsubscribe = window.electron.onM3u8Intercepted((data) => {
+      if (data.url) setM3u8Url(data.url);
+      if (data.subtitles) setInterceptedSubs(data.subtitles);
+    });
+    return () => unsubscribe();
+  }, [playing, playerSource]);
+
+  const togglePlay = useCallback(() => {
+    if (restricted) return;
+    setPlaying((p) => {
+      const next = !p;
+      if (!next) { // clearing tracking refs on close
+        setM3u8Url(null);
+        setInterceptedSubs([]);
+        setResolvedPlayerUrl(null);
+        setResolvingUrl(false);
+        setResolveError(null);
+        autoMarkedRef.current = false;
+        lastKnownTimeRef.current = 0;
+        seekBackCooldownRef.current = 0;
+        if (pipOpen && pipWebContentsIdRef.current) {
+          window.electron?.closePipWindow?.(pipWebContentsIdRef.current);
+          setPipOpen(false);
+          pipWebContentsIdRef.current = null;
+        }
+      } else {
+        onHistory?.({ ...item, media_type: "movie" });
+      }
+      return next;
+    });
+  }, [restricted, onHistory, item, pipOpen]);
+
+  const triggerPopOut = useCallback(() => {
+    const wv = webviewRef.current;
+    if (!wv) return;
+    try {
+      const currentUrl = wv.getURL();
+      if (!currentUrl || currentUrl === "about:blank") return;
+      pipUrlRef.current = currentUrl;
+      window.electron.openPipWindow(currentUrl, item.id);
+    } catch (e) {}
+  }, [item.id]);
+
+  const handleSourceSelect = useCallback((srcId) => {
+    setPlayerSource(srcId);
+    storage.set("playerSource", srcId);
+    setShowSourceMenu(false);
+  }, []);
+
+  if (!details) {
+    return (
+      <div className="page-loading">
+        <div className="spinner" />
+      </div>
+    );
+  }
+
+  const genres = (d.genres || []).map((g) => g.name).join(", ");
+  const backdrop = imgUrl(d.backdrop_path, "original");
+  const poster = imgUrl(d.poster_path, "w500");
 
   return (
-    <div className="media-page animation-fade-in">
-      {backdrop && (
-        <div className="media-backdrop-wrapper">
-          <img src={backdrop} alt="" className="media-backdrop" loading="eager" />
-          <div className="media-backdrop-overlay" />
-        </div>
-      )}
+    <div className="media-page movie-page">
+      <div className="hero-bg" style={{ backgroundImage: backdrop ? `url(${backdrop})` : "none" }}>
+        <div className="hero-overlay" />
+      </div>
 
-      <div className="media-content-container">
-        <button className="media-back-btn" onClick={onBack} title="Go back">
+      <div className="page-header">
+        <button className="icon-btn back-btn" onClick={onBack} title="Back">
           <BackIcon />
         </button>
-
-        <div className="media-main-grid">
-          <div className="media-poster-sidebar">
-            {poster ? (
-              <img src={poster} alt={title} className="media-poster shadow-2xl" loading="eager" />
-            ) : (
-              <div className="media-poster-placeholder shadow-2xl">No Poster</div>
-            )}
-          </div>
-
-          <div className="media-info-main">
-            <h1 className="media-title">{title}</h1>
-
-            <div className="media-meta-row">
-              {year && <span className="media-meta-item">{year}</span>}
-              {d.runtime ? (
-                <span className="media-meta-item">
-                  {Math.floor(d.runtime / 60)}h {d.runtime % 60}m
-                </span>
-              ) : null}
-              {rating.cert && (
-                <span className="media-rating-badge" title={`Age rating source country: ${ratingCountry.toUpperCase()}`}>
-                  {rating.cert}
-                </span>
-              )}
-              {d.vote_average ? (
-                <span className="media-meta-item text-yellow-500 font-semibold flex items-center gap-1">
-                  <StarIcon /> {d.vote_average.toFixed(1)}
-                </span>
-              ) : null}
-            </div>
-
-            {genres.length > 0 && (
-              <div className="media-genres-list">
-                {genres.map((g) => (
-                  <span key={g.id} className="media-genre-tag">
-                    {g.name}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <p className="media-overview">
-              {anilistData ? cleanAnilistDescription(anilistData.description) : d.overview}
-            </p>
-
-            <div className="media-action-row">
-              {restricted ? (
-                <div className="media-restricted-notice">
-                  <RatingLockIcon /> Locked - content exceeds your age limit setting ({ageLimitSetting}+)
-                </div>
-              ) : (
-                <button
-                  className={"media-play-btn" + (playing ? " media-play-btn--playing" : "")}
-                  onClick={() => setPlaying(!playing)}
-                >
-                  <PlayIcon /> {playing ? "Close Player" : hasProgress ? "Continue Watching" : "Watch Now"}
-                </button>
-              )}
-
-              <button
-                className={"media-utility-btn" + (isSaved ? " media-utility-btn--active" : "")}
-                onClick={() => onSave(item)}
-                title={isSaved ? "Remove from watchlist" : "Add to watchlist"}
-              >
-                {isSaved ? <BookmarkFillIcon /> : <BookmarkIcon />}
-              </button>
-
-              {trailerKey && (
-                <button className="media-utility-btn" onClick={() => setShowTrailer(true)} title="Watch Trailer">
-                  <TrailerIcon />
-                </button>
-              )}
-
-              {isWatched ? (
-                <button className="media-utility-btn media-utility-btn--active" onClick={() => onMarkUnwatched(progressKey)} title="Mark as unwatched">
-                  <WatchedIcon />
-                </button>
-              ) : (
-                <button className="media-utility-btn" onClick={() => onMarkWatched(progressKey)} title="Mark as watched">
-                  <WatchedIcon />
-                </button>
-              )}
-            </div>
-
-            {hasProgress && !isWatched && progressLabel && (
-              <div className="media-progress-container mt-4">
-                <div className="media-progress-bar-wrap">
-                  <div className="media-progress-bar-fill" style={{ width: `${displayPct}%` }} />
-                </div>
-                <div className="media-progress-text mt-1">{progressLabel} remaining</div>
-              </div>
-            )}
-          </div>
+        <div className="header-actions">
+          <button className="icon-btn" onClick={() => setShowBlockedModal(true)} title="Blocked Trackers">
+            <ShieldBlockIcon />
+            {blockedSession > 0 && <span className="badge red-badge">{blockedSession}</span>}
+          </button>
+          <button className="icon-btn" onClick={() => onSave(item)} title={isSaved ? "Remove Bookmark" : "Bookmark"}>
+            {isSaved ? <BookmarkFillIcon /> : <BookmarkIcon />}
+          </button>
         </div>
+      </div>
 
-        {playing && !restricted && (
-          <div className="player-main-area relative" ref={playerWrapRef}>
-            {sourceIsAsync(playerSource) && resolvingUrl && (
-              <div className="player-loading-overlay player-loading-overlay--async">
-                <div className="player-loading-spinner" />
-                <div className="player-loading-text">Resolving premium secure mirror from AllManga...</div>
+      <div className="page-content">
+        {playing ? (
+          <div ref={playerWrapRef} className={`player-wrapper ${playerFullscreen ? "fullscreen" : ""}`}>
+            {resolvingUrl ? (
+              <div className="player-loader">
+                <div className="spinner" />
+                <p>Resolving AllManga Stream URL…</p>
+              </div>
+            ) : resolveError ? (
+              <div className="player-loader error-box">
+                <p>{resolveError}</p>
+                <button className="btn" onClick={() => setPlaying(false)}>Close Player</button>
+              </div>
+            ) : playerUrl ? (
+              <div style={{ width: "100%", height: "100%", position: "relative" }}>
+                {webviewLoading && (
+                  <div className="player-loader webview-overlay-loader">
+                    <div className="spinner" />
+                  </div>
+                )}
+                <webview
+                  ref={webviewRef}
+                  src={pipOpen ? "about:blank" : playerUrl}
+                  style={{ width: "100%", height: "100%", background: "#000" }}
+                  sandbox="allow-scripts allow-same-origin allow-forms"
+                  partition="persist:player"
+                  onDOMReady={handleDomReady}
+                  nodeintegration="false"
+                  webpreferences="contextIsolation=true, trustSRI=true"
+                />
+                {pipOpen && (
+                  <div className="pip-placeholder-overlay">
+                    <PopOutIcon />
+                    <p>Playing in Pop-Out Window</p>
+                    <button className="btn" onClick={() => {
+                      if (pipWebContentsIdRef.current) {
+                        window.electron?.closePipWindow?.(pipWebContentsIdRef.current);
+                      }
+                    }}>
+                      Bring Player Back
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="player-loader">
+                <p>No stream URL available for this source.</p>
               </div>
             )}
-
-            {sourceIsAsync(playerSource) && resolveError && (
-              <div className="player-loading-overlay player-loading-overlay--error">
-                <div className="player-error-icon">⚠</div>
-                <div className="player-loading-text text-red-500">{resolveError}</div>
-                <button
-                  className="mt-4 px-4 py-2 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition"
-                  onClick={() => {
-                    setResolvedPlayerUrl(null);
-                    setResolvingUrl(false);
-                    setResolveError(null);
-                    setPlaying(false);
-                    setTimeout(() => setPlaying(true), 50);
-                  }}
-                >
-                  Retry Resolution
+            <div className="player-controls-bar">
+              <div className="left-controls">
+                <button className="btn close-p-btn" onClick={togglePlay}>Close Player</button>
+                <div className="source-selector-wrap" ref={sourceRef}>
+                  <button className="btn source-toggle-btn" onClick={() => setShowSourceMenu(!showSourceMenu)}>
+                    <SourceIcon />
+                    <span>Source: {PLAYER_SOURCES.find((s) => s.id === playerSource)?.name || playerSource}</span>
+                  </button>
+                  {showSourceMenu && (
+                    <div className="source-dropdown-menu">
+                      {PLAYER_SOURCES.filter((s) => !s.tag || isAnime).map((src) => (
+                        <button
+                          key={src.id}
+                          className={`source-item ${playerSource === src.id ? "active" : ""}`}
+                          onClick={() => handleSourceSelect(src.id)}
+                        >
+                          {src.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {playerSource === "allmanga" && (
+                  <div className="dub-toggle-group">
+                    <button className={`btn toggle-sub-btn ${dubMode === "sub" ? "active" : ""}`} onClick={() => setDubMode("sub")}>Sub</button>
+                    <button className={`btn toggle-dub-btn ${dubMode === "dub" ? "active" : ""}`} onClick={() => setDubMode("dub")}>Dub</button>
+                  </div>
+                )}
+              </div>
+              <div className="right-controls">
+                {!pipOpen && playerUrl && !resolvingUrl && !resolveError && (
+                  <button className="icon-btn pip-trigger-btn" onClick={triggerPopOut} title="Pop-out Player">
+                    <PopOutIcon />
+                  </button>
+                )}
+                {NEEDS_INTERCEPT(playerSource) && (
+                  <div className={`stream-capture-badge ${m3u8Url ? "success" : "searching"}`}>
+                    {m3u8Url ? "✓ Link Captured" : "Capturing Stream Link…"}
+                  </div>
+                )}
+                <button className="btn download-trigger-btn" onClick={handleOpenDownload}>
+                  <DownloadIcon /> Download
                 </button>
               </div>
-            )}
-
-            {webviewLoading && !(sourceIsAsync(playerSource) && !resolvedPlayerUrl) && (
-              <div className="player-loading-overlay">
-                <div className="player-loading-spinner" />
-              </div>
-            )}
-
-            {/* Isolated Player Wrapper Matrix */}
-            <div 
-              className="relative w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl border border-zinc-800"
-              style={{ position: "relative", width: "100%", overflow: "hidden" }}
-            >
-              <iframe
-                ref={webviewRef}
-                data-player-frame="true"
-                src={
-                  pipOpen
-                    ? "about:blank"
-                    : sourceIsAsync(playerSource)
-                      ? resolvedPlayerUrl || "about:blank"
-                      : getSourceUrl(playerSource, "movie", item.id, null, null)
-                }
-                title="Player"
-                allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
-                allowFullScreen
-                referrerPolicy="origin"
-                loading="eager"
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: "100%",
-                  border: "none",
-                  background: "black",
-                  zIndex: 10,
-                  visibility:
-                    webviewLoading || (sourceIsAsync(playerSource) && !resolvedPlayerUrl)
-                      ? "hidden"
-                      : "visible",
-                }}
-              />
-
-              {/* Premium Multi-Touch Click Interceptor Shield */}
-              <div 
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: "calc(100% - 55px)",
-                  backgroundColor: "transparent",
-                  zIndex: 20,
-                  pointerEvents: "auto",
-                  cursor: "pointer"
-                }}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onMouseUp={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-              />
             </div>
+          </div>
+        ) : (
+          <div className="media-details-layout">
+            <div className="poster-column">
+              {poster ? <img src={poster} alt={title} className="main-poster" /> : <div className="no-poster"><FilmIcon /></div>}
+            </div>
+            <div className="info-column">
+              <h1 className="media-title">{title}</h1>
+              <div className="metadata-row">
+                {year && <span className="meta-item year-tag">{year}</span>}
+                {d.runtime ? <span className="meta-item duration-tag">{d.runtime} min</span> : null}
+                {d.vote_average ? (
+                  <span className="meta-item rating-tag">
+                    <StarIcon /> {d.vote_average.toFixed(1)}
+                  </span>
+                ) : null}
+                {rating.cert && <span className="meta-item certification-badge">{rating.cert}</span>}
+              </div>
 
-            {/* Left-side overlay button group (Decoupled completely from layout shift matrix) */}
-            <div className="player-overlay-group" style={{ position: "relative", zIndex: 30, display: "flex", gap: "8px", marginTop: "12px" }}>
-              <button
-                ref={sourceRef}
-                className="player-overlay-btn"
-                onClick={() => {
-                  const rect = sourceRef.current?.getBoundingClientRect();
-                  if (rect) setMenuPos({ top: rect.bottom + 6, left: rect.left });
-                  setShowSourceMenu((v) => !v);
-                }}
-                title="Change source"
-              >
-                <SourceIcon />
-                {PLAYER_SOURCES.find((s) => s.id === playerSource)?.label ?? "Source"}
-              </button>
-
-              {playerSource === "allmanga" && (
-                <button
-                  className="player-overlay-btn"
-                  onClick={() => {
-                    const next = dubMode === "sub" ? "dub" : "sub";
-                    setDubMode(next);
-                    storage.set("allmangaDubMode", next);
-                    setM3u8Url(null);
-                    setInterceptedSubs([]);
-                    setResolvedPlayerUrl(null);
-                    setResolvingUrl(false);
-                    setResolveError(null);
-                  }}
-                  title="Toggle Sub/Dub"
-                >
-                  {dubMode === "sub" ? "SUB" : "DUB"}
-                </button>
+              {restricted ? (
+                <div className="age-lock-notice-box">
+                  <RatingLockIcon />
+                  <div>
+                    <h4>Content Locked ({rating.cert})</h4>
+                    <p>This movie exceeds your age restriction filter profile limit.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="action-row">
+                  <button className="btn primary-play-btn" onClick={togglePlay}>
+                    <PlayIcon /> {hasProgress ? "Resume Movie" : "Play Movie"}
+                  </button>
+                  <button className="btn secondary-dl-btn" onClick={handleOpenDownload}>
+                    <DownloadIcon /> Download Option
+                  </button>
+                  {isWatched ? (
+                    <button className="icon-btn watched-toggle-btn active" onClick={() => onMarkUnwatched(progressKey)} title="Mark as Unwatched">
+                      <WatchedIcon />
+                    </button>
+                  ) : (
+                    <button className="icon-btn watched-toggle-btn" onClick={() => onMarkWatched(progressKey)} title="Mark as Watched">
+                      <WatchedIcon />
+                    </button>
+                  )}
+                </div>
               )}
 
-              <button
-                className="player-overlay-btn"
-                onClick={() => {
-                  setShowSourceMenu(false);
-                  setShowBlockedModal(true);
-                }}
-                title="Blocked ads & trackers"
-              >
-                <ShieldBlockIcon />
-                {blockedSession > 0 && <span className="player-blocked-badge">{blockedSession}</span>}
-              </button>
-
-              <button
-                className="player-overlay-btn"
-                onClick={() => {
-                  if (pipOpen) {
-                    window.electron?.closePipWindow?.();
-                    return;
-                  }
-                  const url = sourceIsAsync(playerSource)
-                    ? resolvedPlayerUrl
-                    : getSourceUrl(playerSource, "movie", item.id, null, null);
-                  if (!url) return;
-                  pipUrlRef.current = url;
-                  window.electron?.openPipWindow?.(url, item.title);
-                }}
-                title={pipOpen ? "Close pop-out" : "Pop out player"}
-                disabled={!pipOpen && (webviewLoading || !!(sourceIsAsync(playerSource) && !resolvedPlayerUrl))}
-                style={pipOpen ? { color: "var(--red)" } : undefined}
-              >
-                <PopOutIcon />
-              </button>
-
-              <button
-                className="player-overlay-btn"
-                onClick={() => movieDownload ? onGoToDownloads?.(movieDownload.id) : (setShowSourceMenu(false), setShowDownload(true))}
-                title={movieDownload ? (movieDownload.status === "downloading" ? "Downloading… - view in Downloads" : "Already downloaded - view in Downloads") : "Download"}
-              >
-                {movieDownload ? (
-                  <span className="player-downloaded-icon" style={{ color: movieDownload.status === "downloading" ? "var(--red)" : "#4caf50" }}>
-                    {movieDownload.status === "downloading" ? "↓" : "✓"}
+              {hasProgress && (
+                <div className="resume-progress-container">
+                  <div className="progress-bar-bg">
+                    <div className="progress-bar-fill" style={{ width: `${displayPct}%` }} />
+                  </div>
+                  <span className="progress-percentage-lbl">
+                    {progressLabel ? `Progress: ${progressLabel}` : `${displayPct}% watched`}
                   </span>
-                ) : (
-                  <DownloadIcon />
-                )}
-                {!movieDownload && m3u8Url && <span className="player-overlay-dot" />}
-                {!sourceSupportsProgress(playerSource) && (
-                  <span className="player-no-progress-hint" title="No automatic progress tracking for this source">
-                    ⚠ no tracking
-                  </span>
-                )}
-              </button>
+                </div>
+              )}
+
+              {genres && (
+                <div className="genres-container">
+                  <h5>Genres</h5>
+                  <p>{genres}</p>
+                </div>
+              )}
+
+              {d.overview && (
+                <div className="overview-container">
+                  <h5>Synopsis</h5>
+                  <p className="synopsis-text">{d.overview}</p>
+                </div>
+              )}
+
+              {anilistData && anilistData.description && (
+                <div className="anime-description-container">
+                  <h5>AniList Synopsis</h5>
+                  <p className="synopsis-text" dangerouslySetInnerHTML={{ __html: cleanAnilistDescription(anilistData.description) }} />
+                </div>
+              )}
             </div>
-
-            {showSourceMenu && menuPos && (
-              <div
-                className="source-dropdown source-dropdown--fixed"
-                style={{ top: menuPos.top, left: menuPos.left, zIndex: 40 }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {PLAYER_SOURCES.map((src) => (
-                  <button
-                    key={src.id}
-                    className={"source-dropdown__item" + (playerSource === src.id ? " source-dropdown__item--active" : "")}
-                    onClick={() => {
-                      setShowSourceMenu(false);
-                      if (src.id === playerSource) return;
-                      setPlayerSource(src.id);
-                      storage.set("playerSource", src.id);
-                      setM3u8Url(null);
-                      setInterceptedSubs([]);
-                      setResolvedPlayerUrl(null);
-                      setResolvingUrl(false);
-                      setResolveError(null);
-                    }}
-                  >
-                    <span>{src.label}</span>
-                    {src.tag && <span className="source-dropdown__tag">{src.tag}</span>}
-                    {src.note && <span className="source-dropdown__note">{src.note}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
         )}
 
-        {collection && (
-          <div className="media-collection-section mt-12 border-t border-zinc-800 pt-8">
-            <h3 className="text-xl font-bold mb-4 text-zinc-200">{collection.name}</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+        {collection && collection.parts && collection.parts.length > 0 && (
+          <div className="collection-section">
+            <h3 className="section-title">{collection.name}</h3>
+            <div className="collection-grid cards-grid">
               {collection.parts.map((part) => {
-                const pk = `movie_${part.id}`;
-                const partProgress = progress[pk] || 0;
-                const partWatched = !!watched?.[pk];
+                const partKey = `movie_${part.id}`;
                 return (
                   <CollectionCard
                     key={part.id}
                     part={part}
                     isCurrent={part.id === item.id}
                     onSelect={onSelect}
-                    progress={partProgress}
-                    watched={partWatched}
-                    onMarkWatched={() => onMarkWatched(pk)}
-                    onMarkUnwatched={() => onMarkUnwatched(pk)}
+                    progress={progress[partKey] || 0}
+                    watched={!!watched?.[partKey]}
+                    onMarkWatched={() => onMarkWatched(partKey)}
+                    onMarkUnwatched={() => onMarkUnwatched(partKey)}
                   />
                 );
               })}
@@ -774,10 +683,9 @@ export default function MoviePage({
 
       {showBlockedModal && (
         <BlockedStatsModal
-          mediaId={item.id}
           sessionTotal={blockedSession}
           alltimeTotal={blockedAlltime}
-          getDomains={getBlockedDomains}
+          getDomains={getBlockDomains}
           onClose={() => setShowBlockedModal(false)}
         />
       )}
@@ -802,6 +710,9 @@ export default function MoviePage({
   );
 }
 
+// ── CollectionCard ─────────────────────────────────────────────────────────
+// Isolated memo'd wrapper so the onClick for each collection part is stable
+// and doesn't cause MediaCard to re-render on every progress tick.
 const CollectionCard = memo(function CollectionCard({
   part,
   isCurrent,
@@ -813,7 +724,12 @@ const CollectionCard = memo(function CollectionCard({
 }) {
   const handleClick = useCallback(() => onSelect(part), [onSelect, part]);
   return (
-    <div style={{ opacity: isCurrent ? 0.5 : 1, pointerEvents: isCurrent ? "none" : "auto" }}>
+    <div
+      style={{
+        opacity: isCurrent ? 0.5 : 1,
+        pointerEvents: isCurrent ? "none" : "auto",
+      }}
+    >
       <MediaCard
         item={part}
         onClick={handleClick}
