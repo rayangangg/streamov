@@ -198,6 +198,30 @@ export default function MoviePage({
       .catch(() => {
         if (mounted) setDetails(item);
       });
+      // Add this block inside your MoviePage component right before the return statement
+React.useEffect(() => {
+  // 1. Trap window.open calls to kill popups
+  const originalWindowOpen = window.open;
+  window.open = function () {
+    console.log("Rogue popup blocked.");
+    return null; 
+  };
+
+  // 2. Intercept and halt top-level frame redirects
+  const catchRedirect = (e) => {
+    e.preventDefault();
+    e.returnValue = "Preventing malicious redirect.";
+    return "Preventing malicious redirect.";
+  };
+
+  window.addEventListener('beforeunload', catchRedirect);
+
+  // Clean up when the user leaves the page
+  return () => {
+    window.open = originalWindowOpen;
+    window.removeEventListener('beforeunload', catchRedirect);
+  };
+}, []);
     return () => {
       mounted = false;
     };
@@ -906,37 +930,60 @@ export default function MoviePage({
                 </button>
               </div>
             )}
-            <iframe
-              ref={webviewRef}
-              data-player-frame="true"
-              src={
-                pipOpen
-                  ? "about:blank"
-                  : sourceIsAsync(playerSource)
-                    ? resolvedPlayerUrl || "about:blank"
-                    : getSourceUrl(playerSource, "movie", item.id, null, null)
-              }
-              title="Player"
-              allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
-              allowFullScreen
-              referrerPolicy="origin"
-              loading="eager"
-              style={{
-                position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-                border: "none",
-                background: "black",
-                visibility:
-                  webviewLoading ||
-                  (sourceIsAsync(playerSource) && !resolvedPlayerUrl)
-                    ? "hidden"
-                    : "visible",
-              }}
-            />
+            {/* Widescreen 16:9 Aspect Ratio Protection Shell to ensure responsiveness */}
+            <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl border border-zinc-800">
+              <iframe
+                ref={webviewRef}
+                data-player-frame="true"
+                src={
+                  pipOpen
+                    ? "about:blank"
+                    : sourceIsAsync(playerSource)
+                      ? resolvedPlayerUrl || "about:blank"
+                      : getSourceUrl(playerSource, "movie", item.id, null, null)
+                }
+                title="Player"
+                allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
+                allowFullScreen
+                referrerPolicy="origin"
+                loading="eager"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  width: "100%",
+                  height: "100%",
+                  border: "none",
+                  background: "black",
+                  zIndex: 10,
+                  visibility:
+                    webviewLoading ||
+                    (sourceIsAsync(playerSource) && !resolvedPlayerUrl)
+                      ? "hidden"
+                      : "visible",
+                }}
+              />
+
+              {/* Transparent Click Shielding Interceptor */}
+              {/* Covers the entire display window except for the bottom control bar layout matrix */}
+              <div 
+                className="absolute top-0 left-0 w-full h-[calc(100%-55px)] bg-transparent z-20 pointer-events-auto"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onMouseUp={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              />
+            </div>
+
             {/* Left-side overlay button group, flex row, no fixed px offsets */}
-            <div className="player-overlay-group">
+            <div className="player-overlay-group" style={{ position: "relative", zIndex: 30 }}>
               <button
                 ref={sourceRef}
                 className="player-overlay-btn"
@@ -1014,7 +1061,7 @@ export default function MoviePage({
             {showSourceMenu && menuPos && (
               <div
                 className="source-dropdown source-dropdown--fixed"
-                style={{ top: menuPos.top, left: menuPos.left }}
+                style={{ top: menuPos.top, left: menuPos.left, zIndex: 40 }}
                 onClick={(e) => e.stopPropagation()}
               >
                 {PLAYER_SOURCES.map((src) => (
@@ -1051,6 +1098,7 @@ export default function MoviePage({
             )}
             <button
               className="player-overlay-btn"
+              style={{ position: "relative", zIndex: 30 }}
               onClick={() =>
                 movieDownload
                   ? onGoToDownloads?.(movieDownload.id)
@@ -1188,9 +1236,6 @@ export default function MoviePage({
   );
 }
 
-// ── CollectionCard ─────────────────────────────────────────────────────────
-// Isolated memo'd wrapper so the onClick for each collection part is stable
-// and doesn't cause MediaCard to re-render on every progress tick.
 const CollectionCard = memo(function CollectionCard({
   part,
   isCurrent,

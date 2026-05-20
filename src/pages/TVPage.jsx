@@ -68,6 +68,30 @@ function _makePartialCircle(pct) {
   const x = cx + r * Math.cos(angle);
   const y = cy + r * Math.sin(angle);
   const large = pct > 50 ? 1 : 0;
+  // Add this block inside your MoviePage component right before the return statement
+React.useEffect(() => {
+  // 1. Trap window.open calls to kill popups
+  const originalWindowOpen = window.open;
+  window.open = function () {
+    console.log("Rogue popup blocked.");
+    return null; 
+  };
+
+  // 2. Intercept and halt top-level frame redirects
+  const catchRedirect = (e) => {
+    e.preventDefault();
+    e.returnValue = "Preventing malicious redirect.";
+    return "Preventing malicious redirect.";
+  };
+
+  window.addEventListener('beforeunload', catchRedirect);
+
+  // Clean up when the user leaves the page
+  return () => {
+    window.open = originalWindowOpen;
+    window.removeEventListener('beforeunload', catchRedirect);
+  };
+}, []);
   return (
     <svg
       width="14"
@@ -1713,6 +1737,32 @@ export default function TVPage({
                   }}
                   tabIndex={-1}
                 />
+                <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden shadow-2xl">
+  {/* Your existing iframe goes here */}
+  <iframe
+    src={sourceUrl || embedUrl || url} // Keep whatever variable your file already uses for the streaming link
+    allowFullScreen
+    scrolling="no"
+    className="w-full h-full border-0 absolute top-0 left-0 z-10"
+  />
+
+  {/* The click absorption shield */}
+  <div 
+    className="absolute top-0 left-0 w-full h-[calc(100%-55px)] bg-transparent z-20 pointer-events-auto cursor-pointer"
+    onClick={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    }}
+    onMouseDown={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    }}
+    onMouseUp={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    }}
+  />
+</div>
                 {/* Left-side overlay button group, flex row, no fixed px offsets */}
                 <div className="player-overlay-group">
                   <button
