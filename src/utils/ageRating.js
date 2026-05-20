@@ -117,15 +117,12 @@ export function isRestricted(contentMinAge, ageLimitSetting) {
   return contentMinAge > ageLimitSetting;
 }
 
+import { tmdbFetch } from "./api";
+
 export async function fetchMovieRating(movieId, apiKey, countryCode) {
   try {
-    const res = await fetch(
-      `https://api.themoviedb.org/3/movie/${movieId}/release_dates`,
-      { headers: { Authorization: `Bearer ${apiKey}` } },
-    );
-    if (!res.ok) return { cert: null, minAge: null };
-    const data = await res.json();
-    const results = data.results || [];
+    const data = await tmdbFetch(`/movie/${movieId}/release_dates`, apiKey);
+    const results = data?.results || [];
     const codesToTry = countryCode !== "US" ? [countryCode, "US"] : ["US"];
     for (const code of codesToTry) {
       const entry = results.find((r) => r.iso_3166_1 === code);
@@ -151,13 +148,8 @@ export async function fetchMovieRating(movieId, apiKey, countryCode) {
 
 export async function fetchTVRating(tvId, apiKey, countryCode) {
   try {
-    const res = await fetch(
-      `https://api.themoviedb.org/3/tv/${tvId}/content_ratings`,
-      { headers: { Authorization: `Bearer ${apiKey}` } },
-    );
-    if (!res.ok) return { cert: null, minAge: null };
-    const data = await res.json();
-    const results = data.results || [];
+    const data = await tmdbFetch(`/tv/${tvId}/content_ratings`, apiKey);
+    const results = data?.results || [];
     const codesToTry = countryCode !== "US" ? [countryCode, "US"] : ["US"];
     for (const code of codesToTry) {
       const entry = results.find((r) => r.iso_3166_1 === code);
