@@ -13,7 +13,7 @@ import WindowTitlebar from "./components/WindowTitlebar";
 import { storage, secureStorage, STORAGE_KEYS } from "./utils/storage";
 import { applyAccentColor } from "./utils/appearance";
 import { collectBackupData } from "./utils/backup";
-import { tmdbFetch, setApiErrorHandlers } from "./utils/api";
+import { tmdbFetch, setApiErrorHandlers, CLOUD_TOKEN, hasCloudProxy } from "./utils/api";
 import { clearAppCaches } from "./utils/storage";
 
 import Sidebar from "./components/Sidebar";
@@ -296,11 +296,14 @@ export default function App() {
   const [closeConfirm, setCloseConfirm] = useState(null); // { count }
 
   // ── Load API key from secure storage on startup ──
+  // Web edition: prefer the server-side Cloud proxy (commercial TMDB token
+  // injected by the edge function). User-supplied tokens still work as a
+  // fallback / override.
   useEffect(() => {
     let mounted = true;
     secureStorage.get("apikey").then((val) => {
       if (!mounted) return;
-      setApiKey(val || null);
+      setApiKey(val || (hasCloudProxy ? CLOUD_TOKEN : null));
       setApiKeyLoaded(true);
     });
     return () => {
@@ -345,6 +348,11 @@ export default function App() {
   // ── Validate stored API key on startup ───────────────────────────────────
   useEffect(() => {
     if (!apiKey) {
+      setApiKeyStatus("ok");
+      return;
+    }
+    if (apiKey === CLOUD_TOKEN) {
+      // Cloud proxy: trust the server-side token, no need to round-trip.
       setApiKeyStatus("ok");
       return;
     }
