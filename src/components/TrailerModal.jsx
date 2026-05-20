@@ -234,11 +234,11 @@ export default function TrailerModal({ trailerKey, title, onClose }) {
           {currentSrc && (
             <iframe
               ref={webviewRef}
+              data-player-frame="true"
               src={currentSrc}
               title="Trailer"
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
               allowFullScreen
-              sandbox="allow-scripts allow-same-origin allow-forms"
               referrerPolicy="no-referrer"
               style={{
                 position: "absolute",
