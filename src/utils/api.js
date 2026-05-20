@@ -1,239 +1,409 @@
-// ── Streambert API utilities (web edition) ─────────────────────────────────
-// Pure browser fetch. TMDB token comes from import.meta.env.VITE_TMDB_API_KEY
-// or, as a fallback, from localStorage ("streambert_apikey").
-//
-// PLAYER_SOURCES are kept as inert example.com placeholders. The embed slot
-// will render those URLs but they don't resolve to any actual content — the
-// player UI is structural only in the web edition.
-
 const TMDB_BASE = "https://api.themoviedb.org/3";
-const TMDB_IMG_BASE = "https://image.tmdb.org/t/p";
-const ANILIST_ENDPOINT = "https://graphql.anilist.co";
+const IMG_BASE = "https://image.tmdb.org/t/p";
 
-// ── Player sources (inert placeholders) ──────────────────────────────────
+export const imgUrl = (path, size = "w500") =>
+  path ? `${IMG_BASE}/${size}${path}` : null;
+
+// Global auth-error callback, registered by App on mount
+let _onAuthError = null;
+let _onUnreachable = null;
+export const setApiErrorHandlers = (onAuth, onUnreachable) => {
+  _onAuthError = onAuth;
+  _onUnreachable = onUnreachable;
+};
+
+// ── In-memory TMDB response cache (session-scoped, cleared on page reload) ───
+// Avoids redundant network calls when navigating back to the same show.
+// TTL: 5 minutes
+const _tmdbCache = new Map(); // key → { data, expiresAt }
+const TMDB_CACHE_TTL = 5 * 60 * 1000;
+
+// ── Request queue (max 4 concurrent TMDB fetches) ────────────────────────────
+// Prevents bursts of 10-20 parallel requests from carousel/similar-rows rapid
+// navigation from hammering the API and triggering rate-limit responses.
+let _inflight = 0;
+const MAX_INFLIGHT = 4;
+const _waiters = [];
+
+function _acquireSlot() {
+  if (_inflight < MAX_INFLIGHT) {
+    _inflight++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => _waiters.push(resolve));
+}
+
+function _releaseSlot() {
+  _inflight--;
+  if (_waiters.length > 0) {
+    _inflight++;
+    _waiters.shift()();
+  }
+}
+
+export const tmdbFetch = async (path, apiKey) => {
+  const cacheKey = `${apiKey}|${path}`;
+  const cached = _tmdbCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) return cached.data;
+
+  await _acquireSlot();
+
+  let res;
+  try {
+    res = await fetch(`${TMDB_BASE}${path}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+  } catch {
+    _releaseSlot();
+    _onUnreachable?.();
+    throw new Error("TMDB unreachable");
+  } finally {
+    // releaseSlot is called in the catch above for network errors;
+    // for successful responses it is called immediately below, before
+    // parsing, so the slot is held only during the actual in-flight
+    // request, not during res.json().
+  }
+
+  _releaseSlot();
+
+  if (res.status === 401 || res.status === 403) {
+    _onAuthError?.();
+    throw new Error(`TMDB ${res.status}`);
+  }
+
+  if (!res.ok) throw new Error(`TMDB ${res.status}`);
+  const data = await res.json();
+  _tmdbCache.set(cacheKey, { data, expiresAt: Date.now() + TMDB_CACHE_TTL });
+
+  // Evict stale entries to prevent unbounded memory growth
+  if (_tmdbCache.size > 80) {
+    const now = Date.now();
+    for (const [k, v] of _tmdbCache) {
+      if (now >= v.expiresAt) _tmdbCache.delete(k);
+    }
+  }
+
+  return data;
+};
+
+// ── Player Sources ────────────────────────────────────────────────────────────
+// supportsProgress: true = executeJavaScript tracking works for this source
 export const PLAYER_SOURCES = [
   {
-    id: "vidsrc",
-    label: "Source 1",
+    id: "videasy",
+    label: "Videasy",
     tag: null,
-    supportsProgress: false,
-    movieUrl: (id) => `https://example.com/movie/${id}`,
-    tvUrl: (id, season, ep) => `https://example.com/tv/${id}/${season}/${ep}`,
+    note: null,
+    supportsProgress: true,
+    movieUrl: (id) => `https://player.videasy.net/movie/${id}`,
+    tvUrl: (id, season, ep) =>
+      `https://player.videasy.net/tv/${id}/${season}/${ep}`,
   },
   {
-    id: "videasy",
-    label: "Source 2",
+    id: "vidsrc",
+    label: "VidSrc",
     tag: null,
-    supportsProgress: false,
-    movieUrl: (id) => `https://example.com/embed/movie/${id}`,
+    note: null,
+    supportsProgress: true,
+    progressViaFrames: true, // video is in a nested iframe, needs main-process frame query
+    movieUrl: (id) => `https://vidsrc.to/embed/movie/${id}`,
     tvUrl: (id, season, ep) =>
-      `https://example.com/embed/tv/${id}/${season}/${ep}`,
+      `https://vidsrc.to/embed/tv/${id}/${season}/${ep}`,
   },
   {
     id: "2embed",
-    label: "Source 3",
+    label: "2Embed",
     tag: null,
-    supportsProgress: false,
-    movieUrl: (id) => `https://example.com/player/${id}`,
+    note: "unstable",
+    supportsProgress: true,
+    progressViaFrames: true,
+    movieUrl: (id) => `https://www.2embed.online/embed/movie/${id}`,
     tvUrl: (id, season, ep) =>
-      `https://example.com/player/${id}/${season}/${ep}`,
+      `https://www.2embed.online/embed/tv/${id}/${season}/${ep}`,
   },
   {
     id: "allmanga",
-    label: "Source 4",
+    label: "AllManga",
     tag: "ANIME",
+    note: null,
     supportsProgress: true,
     async: true,
-    movieUrl: () => "https://example.com/anime",
-    tvUrl: () => "https://example.com/anime",
+    movieUrl: (_id) => "https://allmanga.to",
+    tvUrl: (_id, _season, _ep) => "https://allmanga.to",
   },
 ];
 
-export const ANIME_DEFAULT_SOURCE = "allmanga";
-export const NON_ANIME_DEFAULT_SOURCE = "vidsrc";
+export const getSourceUrl = (sourceId, type, id, season, ep) => {
+  const src =
+    PLAYER_SOURCES.find((s) => s.id === sourceId) ?? PLAYER_SOURCES[0];
+  return type === "movie" ? src.movieUrl(id) : src.tvUrl(id, season, ep);
+};
 
-// Sources whose embeds historically need request interception (not available
-// in a plain browser context — kept empty so the UI can branch safely).
-export const NEEDS_INTERCEPT = new Set();
+export const sourceSupportsProgress = (sourceId) =>
+  PLAYER_SOURCES.find((s) => s.id === sourceId)?.supportsProgress ?? false;
 
-const sourceById = (id) =>
-  PLAYER_SOURCES.find((s) => s.id === id) || PLAYER_SOURCES[0];
+export const sourceProgressViaFrames = (sourceId) =>
+  PLAYER_SOURCES.find((s) => s.id === sourceId)?.progressViaFrames ?? false;
 
-export function sourceSupportsProgress(id) {
-  return !!sourceById(id).supportsProgress;
-}
+export const sourceIsAsync = (sourceId) =>
+  PLAYER_SOURCES.find((s) => s.id === sourceId)?.async ?? false;
 
-export function sourceIsAsync(id) {
-  return !!sourceById(id).async;
-}
+// Sources that require a transparent webRequest intercept to load properly
+export const NEEDS_INTERCEPT = ["vidsrc", "2embed"];
 
-export function getSourceUrl(sourceId, type, id, season, ep) {
-  const src = sourceById(sourceId);
-  return type === "movie" ? src.movieUrl(id) : src.tvUrl(id, season ?? 1, ep ?? 1);
-}
+// ── AniList API (anime metadata) ──────────────────────────────────────────────
+const ANILIST_API = "https://graphql.anilist.co";
 
-// ── TMDB ────────────────────────────────────────────────────────────────
-function envToken() {
-  try {
-    return (
-      (typeof import.meta !== "undefined" &&
-        import.meta.env &&
-        import.meta.env.VITE_TMDB_API_KEY) ||
-      ""
-    );
-  } catch {
-    return "";
-  }
-}
+// Strip "(Source: ...)", "Note: ..." and similar attribution lines from AniList descriptions
+export const cleanAnilistDescription = (desc) => {
+  if (!desc) return desc;
+  // Remove HTML by stripping all < and > characters and anything between them.
+  // Splitting on < and dropping the tag portion of each chunk is immune to
+  // unclosed/malformed tags and avoids any regex that starts with "<" (which
+  // static analysers flag as potentially incomplete).
+  let clean = desc
+    .split("<")
+    .map((chunk, i) => (i === 0 ? chunk : chunk.slice(chunk.indexOf(">") + 1)))
+    .join("")
+    .replace(/>/g, "");
+  // Remove everything from "(Source:" onwards (including multi-line variants)
+  clean = clean.replace(/\(Source:[^)]*\)/gi, "");
+  // Remove "Note: ..." sentences/paragraphs at the end
+  clean = clean.replace(/\bNote:[^\n]*/gi, "");
+  // Remove trailing whitespace, newlines, punctuation left over
+  clean = clean.replace(/[\s\n]+$/, "").trim();
+  return clean;
+};
 
-function getStoredToken() {
-  try {
-    const raw = localStorage.getItem("streambert_apikey");
-    if (!raw) return "";
-    // legacy: JSON-encoded by storage helper
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return raw;
-    }
-  } catch {
-    return "";
-  }
-}
-
-function resolveToken(explicit) {
-  return explicit || envToken() || getStoredToken() || "";
-}
-
-// Pluggable error handlers (used by App.jsx for offline / invalid token UX).
-let onAuthError = null;
-let onNetworkError = null;
-export function setApiErrorHandlers({ onAuth, onNetwork } = {}) {
-  onAuthError = typeof onAuth === "function" ? onAuth : null;
-  onNetworkError = typeof onNetwork === "function" ? onNetwork : null;
-}
-
-export function imgUrl(path, size = "w500") {
-  if (!path) return "";
-  return `${TMDB_IMG_BASE}/${size}${path}`;
-}
-
-export async function tmdbFetch(path, apiKey) {
-  const token = resolveToken(apiKey);
-  const url = `${TMDB_BASE}${path.startsWith("/") ? path : `/${path}`}`;
-  let res;
-  try {
-    res = await fetch(url, {
-      headers: token
-        ? { Authorization: `Bearer ${token}`, Accept: "application/json" }
-        : { Accept: "application/json" },
-    });
-  } catch (err) {
-    onNetworkError?.(err);
-    throw err;
-  }
-  if (res.status === 401 || res.status === 403) {
-    onAuthError?.(res.status);
-    throw new Error(`TMDB auth error (${res.status})`);
-  }
-  if (!res.ok) {
-    throw new Error(`TMDB request failed (${res.status}): ${path}`);
-  }
-  return res.json();
-}
-
-export async function fetchEpisodeGroup(groupId) {
-  if (!groupId) return null;
-  try {
-    return await tmdbFetch(`/tv/episode_group/${groupId}`);
-  } catch {
-    return null;
-  }
-}
-
-// ── Anime / Anilist ──────────────────────────────────────────────────────
-export function cleanAnilistDescription(desc) {
-  if (!desc) return "";
-  return desc
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/?[^>]+(>|$)/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-export function isAnimeContent(item, details) {
-  const d = details || item || {};
-  const genres = (d.genres || []).map((g) =>
-    typeof g === "string" ? g.toLowerCase() : (g.name || "").toLowerCase(),
-  );
-  const isAnimation = genres.includes("animation");
-  if (isAnimation) {
-    const countries =
-      d.origin_country ||
-      d.production_countries?.map((c) => c.iso_3166_1) ||
-      [];
-    if (countries.includes("JP")) return true;
-    const langs = [
-      d.original_language,
-      ...(d.spoken_languages?.map((l) => l.iso_639_1) || []),
-    ];
-    if (langs.includes("ja")) return true;
-  }
-  const keywords = d.keywords?.results || d.keywords?.keywords || [];
-  if (keywords.some((k) => /anime/i.test(k.name || ""))) return true;
-  return false;
-}
-
-export async function fetchAnilistData(title) {
-  if (!title) return null;
-  const query = `
-    query ($search: String) {
-      Media(search: $search, type: ANIME) {
-        id
-        idMal
-        title { romaji english native }
-        description(asHtml: false)
-        episodes
-        format
-        status
-        startDate { year month day }
-        coverImage { large extraLarge }
-        bannerImage
-        genres
-        averageScore
-        siteUrl
+const ANILIST_QUERY = `
+query ($search: String, $type: MediaType) {
+  Media(search: $search, type: $type, sort: SEARCH_MATCH) {
+    id
+    idMal
+    title { romaji english native }
+    description(asHtml: false)
+    coverImage { extraLarge large }
+    bannerImage
+    genres
+    averageScore
+    episodes
+    status
+    season
+    seasonYear
+    studios(isMain: true) { nodes { name } }
+    startDate { year month }
+    relations {
+      edges {
+        relationType
+        node {
+          id
+          type
+          format
+          title { romaji english }
+          episodes
+          startDate { year month }
+          seasonYear
+        }
       }
     }
-  `;
+  }
+}`;
+
+// ── AniList cache (localStorage + in-memory) ──────────────────────────────────
+const ANILIST_CACHE_KEY = "streambert_anilistCache";
+const ANILIST_CACHE_TTL = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+// loaded once on first use, flushed to localStorage on write.
+let _anilistCache = null;
+
+function getAnilistCache() {
+  if (_anilistCache) return _anilistCache;
   try {
-    const res = await fetch(ANILIST_ENDPOINT, {
+    const raw = localStorage.getItem(ANILIST_CACHE_KEY);
+    _anilistCache = raw ? JSON.parse(raw) : {};
+  } catch {
+    _anilistCache = {};
+  }
+  // Evict stale entries once on load
+  const now = Date.now();
+  for (const key of Object.keys(_anilistCache)) {
+    if (now - _anilistCache[key].ts > ANILIST_CACHE_TTL) {
+      delete _anilistCache[key];
+    }
+  }
+  return _anilistCache;
+}
+
+let _anilistFlushTimer = null;
+function flushAnilistCache() {
+  if (_anilistFlushTimer) clearTimeout(_anilistFlushTimer);
+  _anilistFlushTimer = setTimeout(() => {
+    _anilistFlushTimer = null;
+    try {
+      localStorage.setItem(ANILIST_CACHE_KEY, JSON.stringify(_anilistCache));
+    } catch {}
+  }, 500);
+}
+
+// tmdbId is used as the cache key (unique per show) while title is used for the AniList search query.
+export const fetchAnilistData = async (
+  title,
+  type = "ANIME",
+  tmdbId = null,
+) => {
+  const cacheKey = tmdbId
+    ? `${type}__tmdb_${tmdbId}`
+    : `${type}__${title.toLowerCase().trim()}`;
+
+  const cache = getAnilistCache();
+  const entry = cache[cacheKey];
+  if (entry && Date.now() - entry.ts <= ANILIST_CACHE_TTL) {
+    // Sanity-check: make sure cached data actually belongs to this title.
+    const cachedTitles = [
+      entry.data?.title?.romaji,
+      entry.data?.title?.english,
+      entry.data?.title?.native,
+    ]
+      .filter(Boolean)
+      .map((t) => t.toLowerCase());
+    const searchTitle = title.toLowerCase();
+    const isMismatch =
+      entry.data !== null &&
+      cachedTitles.length > 0 &&
+      !cachedTitles.some(
+        (t) => t.includes(searchTitle) || searchTitle.includes(t),
+      );
+    if (!isMismatch) return entry.data;
+    // Mismatch detected
+    delete cache[cacheKey];
+    flushAnilistCache();
+  }
+
+  try {
+    const res = await fetch(ANILIST_API, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ query, variables: { search: title } }),
+      body: JSON.stringify({
+        query: ANILIST_QUERY,
+        variables: { search: title, type },
+      }),
     });
-    if (!res.ok) return null;
     const json = await res.json();
-    return json?.data?.Media || null;
+    const data = json?.data?.Media || null;
+
+    cache[cacheKey] = { data, ts: Date.now() };
+    flushAnilistCache();
+
+    return data;
   } catch {
+    if (entry) return entry.data;
     return null;
   }
+};
+
+/**
+ * Build an ordered list of seasons from AniList data.
+ * AniList represents each season of a series as a separate Media entry
+ * linked by SEQUEL/PREQUEL relations. This function walks the SEQUEL chain
+ * starting from the fetched entry and returns seasons sorted by air date.
+ *
+ * Returns: [{ seasonNum, title, episodes, year, month }]
+ */
+export const buildAnilistSeasons = (anilistData) => {
+  if (!anilistData) return null;
+
+  const main = {
+    id: anilistData.id,
+    title:
+      anilistData.title?.english ||
+      anilistData.title?.romaji ||
+      anilistData.title?.native,
+    episodes: anilistData.episodes || null,
+    year: anilistData.startDate?.year || anilistData.seasonYear || 9999,
+    month: anilistData.startDate?.month || 0,
+  };
+
+  // Collect direct TV-format sequels from relations
+  const sequels = (anilistData.relations?.edges || [])
+    .filter(
+      (e) =>
+        e.relationType === "SEQUEL" &&
+        e.node.type === "ANIME" &&
+        (e.node.format === "TV" || e.node.format === "TV_SHORT"),
+    )
+    .map((e) => ({
+      id: e.node.id,
+      title: e.node.title?.english || e.node.title?.romaji,
+      episodes: e.node.episodes || null,
+      year: e.node.startDate?.year || e.node.seasonYear || 9999,
+      month: e.node.startDate?.month || 0,
+    }));
+
+  const all = [main, ...sequels].sort((a, b) =>
+    a.year !== b.year ? a.year - b.year : a.month - b.month,
+  );
+
+  return all.map((s, i) => ({ seasonNum: i + 1, ...s }));
+};
+
+// TMDB genre ID 16 = Animation. We treat it as anime when origin_country includes JP or language is jp
+export const isAnimeContent = (item, details) => {
+  const d = details || item;
+  const lang = d.original_language;
+  const countries = d.origin_country || [];
+  const genreIds = d.genre_ids || (d.genres || []).map((g) => g.id);
+  const hasAnimation = genreIds.includes(16);
+  return hasAnimation && (lang === "ja" || countries.includes("JP"));
+};
+
+// Default sources
+export const ANIME_DEFAULT_SOURCE = "allmanga";
+export const NON_ANIME_DEFAULT_SOURCE = "vidsrc";
+
+// ── Episode Group fetch (localStorage + in-memory cache, 7-day TTL) ─────────
+// Episode groups almost never change, so we cache aggressively across sessions.
+const EG_CACHE_KEY = "streambert_episodeGroupCache";
+const EG_CACHE_TTL = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+let _egCache = null;
+
+function getEgCache() {
+  if (_egCache) return _egCache;
+  try {
+    const raw = localStorage.getItem(EG_CACHE_KEY);
+    _egCache = raw ? JSON.parse(raw) : {};
+  } catch {
+    _egCache = {};
+  }
+  // Evict stale entries once on load
+  const now = Date.now();
+  for (const key of Object.keys(_egCache)) {
+    if (now - _egCache[key].ts > EG_CACHE_TTL) delete _egCache[key];
+  }
+  return _egCache;
 }
 
-export async function buildAnilistSeasons(detail) {
-  if (!detail) return [];
-  const seasons = Array.isArray(detail.seasons) ? detail.seasons : [];
-  return seasons
-    .filter((s) => s.season_number && s.season_number > 0)
-    .map((s) => ({
-      id: `${detail.id}-s${s.season_number}`,
-      seasonNumber: s.season_number,
-      name: s.name || `Season ${s.season_number}`,
-      episodeCount: s.episode_count || 0,
-      airDate: s.air_date || null,
-      poster: imgUrl(s.poster_path, "w342"),
-      overview: s.overview || "",
-    }));
+let _egFlushTimer = null;
+function flushEgCache() {
+  if (_egFlushTimer) clearTimeout(_egFlushTimer);
+  _egFlushTimer = setTimeout(() => {
+    _egFlushTimer = null;
+    try {
+      localStorage.setItem(EG_CACHE_KEY, JSON.stringify(_egCache));
+    } catch {}
+  }, 500);
 }
+
+export const fetchEpisodeGroup = async (groupId, apiKey) => {
+  const cache = getEgCache();
+  const entry = cache[groupId];
+  if (entry && Date.now() - entry.ts <= EG_CACHE_TTL) return entry.data;
+
+  const data = await tmdbFetch(`/tv/episode_group/${groupId}`, apiKey);
+  cache[groupId] = { data, ts: Date.now() };
+  flushEgCache();
+  return data;
+};
