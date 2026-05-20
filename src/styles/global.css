@@ -3838,3 +3838,84 @@ html[data-win-titlebar][data-maximized] .main {
 .episode-check-item:hover {
     color: var(--text) !important;
 }
+
+/* ── Premium polish, skeletons, responsive (web edition) ─────────────── */
+
+/* Smoother poster hover */
+.card { transition: transform .25s ease-out, box-shadow .25s ease-out; will-change: transform; }
+.card:hover { transform: translateY(-4px) scale(1.02); box-shadow: var(--shadow-lift); }
+.card-poster img { transition: transform .4s ease-out; }
+.card:hover .card-poster img { transform: scale(1.05); }
+
+/* Glass surfaces where available */
+@supports (backdrop-filter: blur(20px)) {
+  .sidebar, .titlebar, .modal, .search-modal, .trailer-modal, .source-dropdown, .context-menu, .sidebar-context-menu {
+    backdrop-filter: var(--blur);
+    -webkit-backdrop-filter: var(--blur);
+  }
+}
+
+/* Skeleton placeholder for cards/lists */
+@keyframes streamov-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton, .card-skeleton {
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.04) 0%,
+    rgba(255,255,255,0.10) 50%,
+    rgba(255,255,255,0.04) 100%);
+  background-size: 800px 100%;
+  animation: streamov-shimmer 1.4s linear infinite;
+  border-radius: var(--radius);
+}
+.card-skeleton { aspect-ratio: 2/3; width: 100%; }
+
+/* Player frame: enforce 16:9 across viewports */
+.player-wrap, .player-container, .video-frame {
+  aspect-ratio: 16 / 9;
+  max-height: 100vh;
+}
+
+/* Responsive layout breakpoints */
+@media (max-width: 1024px) {
+  :root { --sidebar: 64px; }
+}
+
+@media (max-width: 768px) {
+  :root { --sidebar: 0px; }
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform .3s ease;
+  }
+  .sidebar.open { transform: translateX(0); width: 220px; }
+  .titlebar { display: none !important; }
+}
+
+@media (max-width: 480px) {
+  body { font-size: 14px; }
+  .card-title { font-size: 12px; }
+  .hero, .hero-section { min-height: 60vh !important; padding: 16px !important; }
+  .grid, .media-grid {
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)) !important;
+    gap: 10px !important;
+  }
+}
+
+/* Touch device: disable hover lift to avoid sticky states */
+@media (hover: none) {
+  .card:hover { transform: none; box-shadow: var(--shadow-card); }
+  .card:hover .card-poster img { transform: none; }
+}
+
+/* Reduced motion: respect user preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
+
+/* Focus rings using accent */
+:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
