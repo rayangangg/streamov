@@ -908,6 +908,7 @@ export default function MoviePage({
             )}
             <iframe
               ref={webviewRef}
+              data-player-frame="true"
               src={
                 pipOpen
                   ? "about:blank"
@@ -918,7 +919,6 @@ export default function MoviePage({
               title="Player"
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
               allowFullScreen
-              sandbox="allow-scripts allow-same-origin allow-forms"
               referrerPolicy="origin"
               loading="eager"
               style={{
