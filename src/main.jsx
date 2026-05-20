@@ -43,9 +43,8 @@ if (typeof HTMLIFrameElement !== "undefined") {
 }
 
 // ─── Base-level player ad / popup / redirect shield ─────────────────────
-// The player iframe must stay unsandboxed for providers that block sandboxed
-// embeds, so this guard blocks top-level ad redirects and popup attempts from
-// the app shell instead.
+// Player providers need a normal embed, so this guard blocks top-level ad
+// redirects and popup attempts from the app shell instead.
 if (typeof window !== "undefined") {
   let redirectGuardUntil = 0;
 
