@@ -917,6 +917,7 @@ export default function MoviePage({
                     : getSourceUrl(playerSource, "movie", item.id, null, null)
               }
               title="Player"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
               allowFullScreen
               referrerPolicy="origin"
