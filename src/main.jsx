@@ -57,11 +57,54 @@ if (typeof window !== "undefined") {
     },
   };
 
+  // Hard-lock window.open so player ad scripts cannot reassign it.
   try {
-    window.open = function blockedOpen() {
+    const blockedOpen = function () {
       return null;
     };
+    Object.defineProperty(window, "open", {
+      get() {
+        return blockedOpen;
+      },
+      set() {},
+      configurable: false,
+    });
+  } catch {
+    try {
+      window.open = function () {
+        return null;
+      };
+    } catch {}
+  }
+
+  // Neutralise document.open's window-spawning side-effect path
+  try {
+    const origDocOpen = document.open?.bind(document);
+    if (origDocOpen) {
+      document.open = function () {
+        try {
+          return origDocOpen();
+        } catch {
+          return document;
+        }
+      };
+    }
   } catch {}
+
+  // Capture-phase auxclick (middle-click) and contextmenu links — common popup vector
+  ["auxclick", "contextmenu"].forEach((evt) => {
+    document.addEventListener(
+      evt,
+      (e) => {
+        const a = e.target?.closest?.("a[href]");
+        if (a && (a.target === "_blank" || a.target === "_top" || a.target === "_parent")) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      },
+      true,
+    );
+  });
 
   window.addEventListener("beforeunload", (e) => {
     if (Date.now() < redirectGuardUntil) {
