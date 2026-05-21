@@ -237,6 +237,7 @@ export default function TrailerModal({ trailerKey, title, onClose }) {
               data-player-frame="true"
               src={currentSrc}
               title="Trailer"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
               allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
               allowFullScreen
               referrerPolicy="no-referrer"
