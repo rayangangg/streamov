@@ -84,6 +84,18 @@ if (typeof window !== "undefined") {
     true,
   );
 
+  document.addEventListener(
+    "submit",
+    (e) => {
+      const f = e.target;
+      if (f?.target === "_blank" || f?.target === "_top" || f?.target === "_parent") {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    true,
+  );
+
   ["pointerenter", "pointerdown", "touchstart", "focusin"].forEach((eventName) => {
     document.addEventListener(
       eventName,
