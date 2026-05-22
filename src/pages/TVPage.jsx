@@ -45,6 +45,7 @@ import {
   ShieldBlockIcon,
   PopOutIcon,
 } from "../components/Icons";
+import IframeGate from "../components/IframeGate";
 import DownloadModal from "../components/DownloadModal";
 import TrailerModal from "../components/TrailerModal";
 import BlockedStatsModal from "../components/BlockedStatsModal";
