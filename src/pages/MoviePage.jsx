@@ -28,6 +28,11 @@ import {
   BookmarkFillIcon,
   BackIcon,
   StarIcon,
+} from "../components/Icons";
+import IframeGate from "../components/IframeGate";
+import _unused_StarIconAlias from "../components/Icons"; void _unused_StarIconAlias;
+import {
+  StarIcon as _StarIconReimport,
   FilmIcon,
   DownloadIcon,
   WatchedIcon,
@@ -935,6 +940,9 @@ export default function MoviePage({
                     : "visible",
               }}
             />
+            {!webviewLoading &&
+              !(sourceIsAsync(playerSource) && !resolvedPlayerUrl) &&
+              !pipOpen && <IframeGate />}
             {/* Left-side overlay button group, flex row, no fixed px offsets */}
             <div className="player-overlay-group">
               <button
