@@ -1713,6 +1713,9 @@ export default function TVPage({
                   }}
                   tabIndex={-1}
                 />
+                {!webviewLoading && !(isAsync && !resolvedPlayerUrl) && !pipOpen && (
+                  <IframeGate />
+                )}
                 {/* Left-side overlay button group, flex row, no fixed px offsets */}
                 <div className="player-overlay-group">
                   <button
