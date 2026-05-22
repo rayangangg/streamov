@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { CloseIcon, ExternalLinkIcon } from "./Icons";
+import IframeGate from "./IframeGate";
 import { storage } from "../utils/storage";
 
 export const DEFAULT_INVIDIOUS_BASE = "https://inv.nadeko.net";
@@ -252,6 +253,7 @@ export default function TrailerModal({ trailerKey, title, onClose }) {
               }}
             />
           )}
+          {currentSrc && !statusMsg && <IframeGate label="Click to play trailer" />}
         </div>
       </div>
     </div>
