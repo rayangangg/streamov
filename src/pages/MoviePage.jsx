@@ -30,9 +30,7 @@ import {
   StarIcon,
 } from "../components/Icons";
 import IframeGate from "../components/IframeGate";
-import _unused_StarIconAlias from "../components/Icons"; void _unused_StarIconAlias;
 import {
-  StarIcon as _StarIconReimport,
   FilmIcon,
   DownloadIcon,
   WatchedIcon,
